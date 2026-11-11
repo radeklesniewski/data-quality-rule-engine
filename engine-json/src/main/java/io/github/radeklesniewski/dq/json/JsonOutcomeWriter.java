@@ -103,6 +103,32 @@ public final class JsonOutcomeWriter implements OutcomeSink, AutoCloseable {
         json.flush();
     }
 
+    /**
+     * Records that the run failed, and completes the JSON <em>without</em> a summary. The document gets an
+     * {@code "error"} property; NDJSON gets a final {@code {"type":"error","message":...}} line. Use it when output
+     * was already partly sent (e.g. an HTTP response with status 200) and the input then turned out to be broken.
+     *
+     * @param reason a message for the consumer; must not contain record data
+     */
+    public void abort(String reason) {
+        Objects.requireNonNull(reason, "reason");
+        if (finished) {
+            throw new IllegalStateException("Writer already finished");
+        }
+        finished = true;
+        if (document) {
+            json.writeEndArray();
+            json.writeStringProperty("error", reason);
+            json.writeEndObject();
+        } else {
+            json.writeStartObject();
+            json.writeStringProperty("type", "error");
+            json.writeStringProperty("message", reason);
+            json.writeEndObject();
+        }
+        json.flush();
+    }
+
     /** Completes any open JSON structure and closes the stream. Idempotent. */
     @Override
     public void close() {

@@ -104,6 +104,27 @@ class JsonOutcomeWriterTest {
     }
 
     @Test
+    void abortMarksTheOutputAsFailedWithoutSummary() {
+        JsonNode doc = documentOf(writer -> {
+            writer.accept(RESULT);
+            writer.abort("Malformed JSON at line 3");
+        });
+        assertThat(doc.get("outcomes")).hasSize(1);
+        assertThat(doc.get("error").stringValue()).isEqualTo("Malformed JSON at line 3");
+        assertThat(doc.has("summary")).isFalse();
+
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (JsonOutcomeWriter writer = JsonOutcomeWriter.lines(out)) {
+            writer.accept(RESULT);
+            writer.abort("broken");
+            assertThatThrownBy(() -> writer.finish(SUMMARY)).isInstanceOf(IllegalStateException.class);
+        }
+        List<String> lines = out.toString(UTF_8).lines().toList();
+        assertThat(Json.MAPPER.readTree(lines.getLast())).isEqualTo(
+                Json.MAPPER.readTree("{\"type\": \"error\", \"message\": \"broken\"}"));
+    }
+
+    @Test
     void rejectsOutcomesAfterFinish() {
         JsonOutcomeWriter writer = JsonOutcomeWriter.lines(new ByteArrayOutputStream());
         writer.finish(SUMMARY);
