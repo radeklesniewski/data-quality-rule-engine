@@ -5,6 +5,8 @@
  * and is never exported.
  */
 module io.github.radeklesniewski.dq.core {
-    // Exports are added as the API packages gain types (javac rejects exporting a package with no types):
-    //   io.github.radeklesniewski.dq, io.github.radeklesniewski.dq.rule, io.github.radeklesniewski.dq.select
+    exports io.github.radeklesniewski.dq;
+    exports io.github.radeklesniewski.dq.record;
+    // io.github.radeklesniewski.dq.select is exported in M3, once it has types
+    // (javac rejects exporting a package that contains only package-info.java).
 }
