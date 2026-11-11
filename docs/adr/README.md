@@ -14,6 +14,7 @@ One file per decision: `NNNN-short-title.md`. Never delete an ADR. Supersede it 
 | 0007 | [Country-scope mismatch: skip, no Result](0007-country-scope-mismatch.md) | Accepted |
 | 0008 | [Record access model and computed value type](0008-record-access-and-computed-value.md) | Accepted |
 | 0009 | [Rule selection: composable filters that can only narrow](0009-rule-selection.md) | Accepted |
+| 0010 | [JSON adapters: input, catalog and output formats](0010-json-formats.md) | Accepted |
 
 ## Template
 

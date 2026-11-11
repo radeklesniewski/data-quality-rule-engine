@@ -48,9 +48,13 @@ Priority order follows the brief: **core done well before extended features**.
 - ☐ (Next) Host-supplied `Executor`; reduce per-outcome allocation (benchmarks show the parallel path is GC-bound).
 
 ## M5 — JSON adapters (`engine-json`)
-- ☐ Streaming JSON array reader → `DataRecord` iterator (Jackson `JsonParser`, no full-tree load of the batch).
-- ☐ JSON rule-catalog loader: metadata + decision mapping as data, logic referenced by id from a `RuleLogicRegistry`.
-- ☐ Streaming result/error writer (NDJSON or JSON array).
+- ☑ `JsonRecordSources.array` (streaming, non-object elements → `RecordError`, syntax error → abort) and
+  `JsonRecordSources.lines` (NDJSON, a bad line → `RecordError`). `JsonDataRecord` reads Jackson nodes without copying.
+- ☑ `JsonRuleCatalog`: strict format, every problem reported at once, `watching(path)` reloads between runs.
+  `RuleLogicRegistry` added to core.
+- ☑ `JsonOutcomeWriter`: streaming `document` (`{"outcomes":[...],"summary":{...}}`) and `lines` (NDJSON) formats.
+- ☑ `Fixtures` moved to `engine-core` test fixtures. `JsonFixtureScenarioTest` runs the brief entirely as JSON.
+- ☐ (Next) Parameterised logic in catalogs; a JSON Schema for catalog files (ADR-0010).
 
 ## M6 — Example HTTP API (`example-http`)
 - ☐ `POST /validate` (body: records JSON array; query: filters, batchSize). Streams the response.

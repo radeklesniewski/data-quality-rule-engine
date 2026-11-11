@@ -107,10 +107,18 @@ hard-code versions in module build files. Configuration cache and build cache ar
 - Missing field semantics: logic chooses. `record.get(path)` returns an Optional (absence is a normal value,
   e.g. a missing vatId gives `"bad"`). `record.require(path)` throws, which turns into a `RuleError`.
 
+## Shared test fixtures
+
+`Fixtures` (the brief's records, logic, rules, logic registry and expected decision table) lives in
+`engine-core/src/testFixtures`. Other modules use it via `testImplementation testFixtures(project(':engine-core'))`.
+Reuse it rather than re-declaring the scenario. JSON versions of the fixture are in
+`engine-json/src/test/resources/fixture/`.
+
 ## Acceptance scenario (must always pass)
 
 The fixture in `REQUIREMENTS.md` §5 (records r1–r3; rules countryBlocked / vatFormat / ibanFormat) is encoded
-as `FixtureScenarioTest` and must produce exactly the expected decision table. A fault-isolation variant adds
+as `FixtureScenarioTest` (Java) and `JsonFixtureScenarioTest` (records and catalog as JSON). Both must produce
+exactly `Fixtures.EXPECTED`. A fault-isolation variant adds
 one failing rule or record and asserts that the rest of the batch completes and the failure is reported.
 
 ## Testing conventions
