@@ -9,6 +9,8 @@ description = 'Data-quality rule engine: example HTTP API'
 dependencies {
     implementation project(':engine-core')
     implementation project(':engine-json')
+
+    testImplementation testFixtures(project(':engine-core'))
 }
 
 application {

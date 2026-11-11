@@ -1,0 +1,51 @@
+{
+  "description": "Example catalog: the task brief's three rules plus a country-scoped and a draft rule to demonstrate selection.",
+  "rules": [
+    {
+      "id": "countryBlocked",
+      "label": "Country is not blocked",
+      "logic": "countryBlocked",
+      "status": "RELEASED",
+      "severity": "ERROR",
+      "categories": ["compliance"],
+      "decisionMapping": { "mappings": { "blocked": "INVALID" }, "default": "NOT_APPLICABLE" }
+    },
+    {
+      "id": "vatFormat",
+      "label": "VAT id has a plausible format",
+      "logic": "vatFormat",
+      "status": "RELEASED",
+      "severity": "ERROR",
+      "categories": ["tax", "format"],
+      "decisionMapping": { "mappings": { "ok": "VALID", "bad": "INVALID" }, "default": "REVIEW" }
+    },
+    {
+      "id": "ibanFormat",
+      "label": "IBAN matches the record's country",
+      "logic": "ibanFormat",
+      "status": "RELEASED",
+      "severity": "ERROR",
+      "categories": ["bank", "format"],
+      "decisionMapping": { "mappings": { "ok": "VALID", "bad": "INVALID" }, "default": "REVIEW" }
+    },
+    {
+      "id": "deVatPrefix",
+      "label": "German VAT id starts with DE",
+      "logic": "deVatPrefix",
+      "status": "RELEASED",
+      "severity": "WARNING",
+      "countryScope": "DE",
+      "categories": ["tax"],
+      "decisionMapping": { "mappings": { "ok": "VALID", "bad": "INVALID" }, "default": "REVIEW" }
+    },
+    {
+      "id": "legalNamePresent",
+      "label": "Legal name is present (draft)",
+      "logic": "legalNamePresent",
+      "status": "DRAFT",
+      "severity": "INFO",
+      "categories": ["identity"],
+      "decisionMapping": { "mappings": { "ok": "VALID", "blank": "REVIEW" }, "default": "REVIEW" }
+    }
+  ]
+}
