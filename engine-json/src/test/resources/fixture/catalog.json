@@ -1,0 +1,32 @@
+{
+  "description": "The rule catalog of the task brief's scenario (all self-contained, all RELEASED).",
+  "rules": [
+    {
+      "id": "countryBlocked",
+      "label": "Country is not blocked",
+      "logic": "countryBlocked",
+      "status": "RELEASED",
+      "severity": "ERROR",
+      "categories": ["compliance"],
+      "decisionMapping": { "mappings": { "blocked": "INVALID" }, "default": "NOT_APPLICABLE" }
+    },
+    {
+      "id": "vatFormat",
+      "label": "VAT id has a plausible format",
+      "logic": "vatFormat",
+      "status": "RELEASED",
+      "severity": "ERROR",
+      "categories": ["tax", "format"],
+      "decisionMapping": { "mappings": { "ok": "VALID", "bad": "INVALID" }, "default": "REVIEW" }
+    },
+    {
+      "id": "ibanFormat",
+      "label": "IBAN matches the record's country",
+      "logic": "ibanFormat",
+      "status": "RELEASED",
+      "severity": "ERROR",
+      "categories": ["bank", "format"],
+      "decisionMapping": { "mappings": { "ok": "VALID", "bad": "INVALID" }, "default": "REVIEW" }
+    }
+  ]
+}

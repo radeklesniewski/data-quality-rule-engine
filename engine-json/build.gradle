@@ -7,6 +7,8 @@ description = 'Data-quality rule engine: JSON (Jackson) adapters'
 
 dependencies {
     api project(':engine-core')
-    implementation platform(libs.jackson.bom)
-    implementation libs.jackson.databind
+    api platform(libs.jackson.bom)
+    api libs.jackson.databind // JsonDataRecord.of(JsonNode) exposes Jackson types
+
+    testImplementation testFixtures(project(':engine-core'))
 }
