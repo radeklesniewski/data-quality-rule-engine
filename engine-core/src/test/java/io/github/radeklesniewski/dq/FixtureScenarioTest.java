@@ -39,10 +39,7 @@ class FixtureScenarioTest {
 
         RunSummary summary = engine.run(RecordSource.of(Fixtures.RECORDS), RuleCatalog.of(Fixtures.RULES), sink);
 
-        assertThat(decisionTable(sink.results())).isEqualTo(Map.of(
-                "r1", Map.of("countryBlocked", NOT_APPLICABLE, "vatFormat", VALID, "ibanFormat", VALID),
-                "r2", Map.of("countryBlocked", NOT_APPLICABLE, "vatFormat", INVALID, "ibanFormat", VALID),
-                "r3", Map.of("countryBlocked", INVALID, "vatFormat", INVALID, "ibanFormat", INVALID)));
+        assertThat(decisionTable(sink.results())).isEqualTo(Fixtures.EXPECTED);
         assertThat(sink.errors()).isEmpty();
 
         assertThat(summary.resultCount()).isEqualTo(9);

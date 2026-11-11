@@ -1,6 +1,7 @@
 // The library. Invariant: ZERO runtime dependencies (see AGENTS.md, ADR-0002).
 plugins {
     id 'dq.library-conventions'
+    id 'java-test-fixtures' // Fixtures (the brief's scenario) shared with engine-json and example-http tests
     alias(libs.plugins.jmh)
 }
 
