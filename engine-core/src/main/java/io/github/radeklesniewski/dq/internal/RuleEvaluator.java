@@ -24,10 +24,11 @@ public final class RuleEvaluator {
      * @param rule the rule
      * @param view a tracking view not used by any other evaluation
      * @param recordId the record's id, for provenance
+     * @param recordIndex the record's position in the input, for provenance
      * @return the result
      * @throws RuntimeException whatever the rule logic throws, or {@link IllegalStateException} if it returns null
      */
-    public static Result evaluate(Rule rule, TrackingRecordView view, String recordId) {
+    public static Result evaluate(Rule rule, TrackingRecordView view, String recordId, long recordIndex) {
         Objects.requireNonNull(rule, "rule");
         Objects.requireNonNull(view, "view");
         Objects.requireNonNull(recordId, "recordId");
@@ -38,7 +39,8 @@ public final class RuleEvaluator {
                     "Logic of rule '" + rule.id() + "' returned null; rule logic must return a non-null value");
         }
         DecisionMapping mapping = rule.decisionMapping();
-        Provenance provenance = new Provenance(rule.id(), recordId, view.reads(), value, !mapping.isMapped(value));
+        Provenance provenance = new Provenance(
+                rule.id(), recordId, recordIndex, view.reads(), value, !mapping.isMapped(value));
         return new Result(mapping.decide(value), rule.severity(), provenance);
     }
 }

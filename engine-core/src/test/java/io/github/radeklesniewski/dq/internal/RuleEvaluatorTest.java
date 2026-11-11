@@ -33,7 +33,7 @@ class RuleEvaluatorTest {
 
     private static Result evaluate(Rule rule, DataRecord record) {
         String id = (String) record.get("id").orElseThrow();
-        return RuleEvaluator.evaluate(rule, new TrackingRecordView(record), id);
+        return RuleEvaluator.evaluate(rule, new TrackingRecordView(record), id, 0);
     }
 
     static Stream<Arguments> fixtureDecisionTable() {
@@ -103,7 +103,7 @@ class RuleEvaluatorTest {
         }, DecisionMapping.builder().orElse(VALID));
         TrackingRecordView view = new TrackingRecordView(R3);
 
-        assertThatThrownBy(() -> RuleEvaluator.evaluate(rule, view, "r3"))
+        assertThatThrownBy(() -> RuleEvaluator.evaluate(rule, view, "r3", 2))
                 .isInstanceOf(MissingFieldException.class);
         assertThat(view.reads()).containsExactly(FieldRead.present("country", "ZZ"), FieldRead.absent("vatId"));
     }

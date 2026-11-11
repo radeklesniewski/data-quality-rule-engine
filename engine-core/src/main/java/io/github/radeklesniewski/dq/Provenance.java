@@ -9,6 +9,7 @@ import java.util.Objects;
  *
  * @param ruleId the rule that produced the result
  * @param recordId the record it judged
+ * @param recordIndex zero-based position of the record in the run's input, for locating it even without the id
  * @param fieldsRead fields the rule read, in first-read order, captured automatically by the engine
  * @param computedValue the value the rule logic computed
  * @param defaultDecision {@code true} if {@code computedValue} wasn't explicitly mapped, so the default decision applied
@@ -16,6 +17,7 @@ import java.util.Objects;
 public record Provenance(
         String ruleId,
         String recordId,
+        long recordIndex,
         List<FieldRead> fieldsRead,
         String computedValue,
         boolean defaultDecision) {
@@ -24,6 +26,9 @@ public record Provenance(
     public Provenance {
         Objects.requireNonNull(ruleId, "ruleId");
         Objects.requireNonNull(recordId, "recordId");
+        if (recordIndex < 0) {
+            throw new IllegalArgumentException("recordIndex must be >= 0, got " + recordIndex);
+        }
         fieldsRead = List.copyOf(Objects.requireNonNull(fieldsRead, "fieldsRead"));
         Objects.requireNonNull(computedValue, "computedValue");
     }

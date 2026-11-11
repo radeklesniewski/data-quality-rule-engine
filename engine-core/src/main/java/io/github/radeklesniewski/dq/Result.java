@@ -11,7 +11,7 @@ import java.util.Objects;
  * @param severity the rule's severity
  * @param provenance which rule, which record, which fields and values, and how the value was mapped
  */
-public record Result(Decision decision, Severity severity, Provenance provenance) {
+public record Result(Decision decision, Severity severity, Provenance provenance) implements Outcome {
 
     /** Validates components. */
     public Result {
@@ -36,5 +36,10 @@ public record Result(Decision decision, Severity severity, Provenance provenance
      */
     public String recordId() {
         return provenance.recordId();
+    }
+
+    @Override
+    public long recordIndex() {
+        return provenance.recordIndex();
     }
 }
