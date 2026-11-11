@@ -6,9 +6,13 @@ import static org.assertj.core.api.Assertions.assertThat;
 import io.github.radeklesniewski.dq.Fixtures;
 import io.github.radeklesniewski.dq.rule.Decision;
 import io.github.radeklesniewski.dq.rule.RuleCatalog;
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.io.OutputStream;
 import java.net.InetSocketAddress;
+import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -22,6 +26,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.Timeout;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.JsonNode;
@@ -148,6 +153,72 @@ class ExampleHttpServerTest {
             assertThat(doc.get("outcomes")).hasSize(3);
             assertThat(doc.get("error").stringValue()).startsWith("Malformed JSON at line 2");
             assertThat(doc.has("summary")).isFalse();
+        }
+
+        @Test
+        void contentAfterTheArrayIsReportedNotSilentlyDropped() throws Exception {
+            HttpResponse<String> response = post(fixtureServer, "/validate", "application/json", """
+                    [ {"id": "a", "vatId": "DE111111111", "country": "DE", "iban": "DE1"} ]
+                    [ {"id": "b", "vatId": "DE111111111", "country": "DE", "iban": "DE1"} ]""");
+
+            JsonNode doc = JSON.readTree(response.body());
+            assertThat(doc.get("outcomes")).as("the first array is still validated").hasSize(3);
+            assertThat(doc.get("error").stringValue()).startsWith("Unexpected content after the records array");
+            assertThat(doc.has("summary")).isFalse();
+        }
+
+        /**
+         * Regression for a deadlock: a client that uploads the whole body before reading anything (like
+         * {@link HttpURLConnection}, Python {@code requests}, many proxies) used to stall once the response filled the
+         * socket buffers, because the server wrote results while still reading the request. The body is now spooled
+         * to a temporary file first.
+         */
+        @Test
+        @Timeout(value = 60, threadMode = Timeout.ThreadMode.SEPARATE_THREAD) // a deadlock must fail, not hang
+        void halfDuplexClientWithALargeBodyGetsTheCompleteResponse() throws Exception {
+            int records = 200_000;
+            StringBuilder body = new StringBuilder(records * 100).append('[');
+            for (int i = 0; i < records; i++) {
+                body.append(i == 0 ? "" : ",").append("{\"id\":\"r").append(i)
+                        .append("\",\"country\":\"DE\",\"vatId\":\"DE111111111\",\"iban\":\"DE1\"}");
+            }
+            byte[] bytes = body.append(']').toString().getBytes(UTF_8);
+
+            HttpURLConnection connection = (HttpURLConnection) uri(fixtureServer, "/validate?format=ndjson")
+                    .toURL().openConnection();
+            connection.setRequestMethod("POST");
+            connection.setRequestProperty("Content-Type", "application/json");
+            connection.setDoOutput(true);
+            connection.setFixedLengthStreamingMode(bytes.length);
+            connection.setConnectTimeout(10_000);
+            connection.setReadTimeout(60_000);
+            try (OutputStream out = connection.getOutputStream()) {
+                out.write(bytes); // the whole upload first...
+            }
+            long lines = 0;
+            String last = null;
+            try (BufferedReader in = new BufferedReader(new InputStreamReader(connection.getInputStream(), UTF_8))) {
+                for (String line = in.readLine(); line != null; line = in.readLine()) { // ...then the response
+                    lines++;
+                    last = line;
+                }
+            }
+
+            assertThat(connection.getResponseCode()).isEqualTo(200);
+            assertThat(lines).isEqualTo(3L * records + 1);
+            assertThat(JSON.readTree(last).get("recordsRead").intValue()).isEqualTo(records);
+        }
+
+        @Test
+        void bodyOverTheLimitIsRejectedBeforeValidation() throws Exception {
+            try (ExampleHttpServer limited = ExampleHttpServer.start(new InetSocketAddress("localhost", 0),
+                    RuleCatalog.of(Fixtures.RULES), 1_000)) {
+                HttpResponse<String> response = post(limited, "/validate", "application/json",
+                        "[" + "{\"id\": \"r\"},".repeat(200) + "{\"id\": \"last\"}]");
+
+                assertThat(response.statusCode()).isEqualTo(413);
+                assertThat(JSON.readTree(response.body()).get("error").stringValue()).contains("1000 bytes");
+            }
         }
 
         @Test

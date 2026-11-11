@@ -20,6 +20,7 @@ import java.io.UncheckedIOException;
 import java.lang.System.Logger.Level;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.Locale;
@@ -42,13 +43,19 @@ import tools.jackson.databind.json.JsonMapper;
  *   <li>{@code GET /health}: liveness.</li>
  * </ul>
  *
- * <p>The request body is read and the response written <em>while</em> the engine runs, so a request's memory doesn't
- * grow with the batch size. As a consequence the 200 status is sent before the input has been fully read. If the
- * body turns out to be malformed half-way, the response ends with an {@code "error"} and has no {@code "summary"}.
- * Clients must treat a response without a summary as incomplete.
+ * <p><strong>Request handling.</strong> The request body is first copied, in a streaming way, to a temporary file
+ * (owner-only permissions, deleted when the request ends). A body larger than the configured limit is rejected with
+ * {@code 413} before any validation. The engine then reads records lazily from that file, and the response is
+ * written while it runs. Memory therefore doesn't grow with the batch size, and the server works with
+ * <em>any</em> HTTP client. Clients that upload the whole body before reading the response (most of them) would
+ * otherwise deadlock against a server that writes while it is still reading.
  *
- * <p>Run: {@code ./gradlew :example-http:run --args="--port 8080 --catalog path/to/catalog.json"}. Both arguments are
- * optional; the bundled {@code example-catalog.json} is used by default.
+ * <p>The 200 status is sent before the records have been parsed. If the body turns out to be malformed half-way, the
+ * response ends with an {@code "error"} and has no {@code "summary"}. Clients must treat a response without a summary
+ * as incomplete.
+ *
+ * <p>Run: {@code ./gradlew :example-http:run --args="--port 8080 --catalog path/to/catalog.json --max-body-mb 1024"}.
+ * All arguments are optional. The bundled {@code example-catalog.json} and a 1 GiB body limit are the defaults.
  */
 public final class ExampleHttpServer implements AutoCloseable {
 
@@ -57,13 +64,21 @@ public final class ExampleHttpServer implements AutoCloseable {
     private static final String NDJSON = "application/x-ndjson";
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
+    /** Default limit for a request body: 1 GiB, roughly 10 million partner records. */
+    public static final long DEFAULT_MAX_BODY_BYTES = 1024L * 1024 * 1024;
+
     private final HttpServer server;
     private final ExecutorService executor;
     private final RuleCatalog catalog;
+    private final long maxBodyBytes;
     private final ValidationEngine engine = ValidationEngine.create();
 
-    private ExampleHttpServer(InetSocketAddress address, RuleCatalog catalog) throws IOException {
+    private ExampleHttpServer(InetSocketAddress address, RuleCatalog catalog, long maxBodyBytes) throws IOException {
         this.catalog = Objects.requireNonNull(catalog, "catalog");
+        if (maxBodyBytes < 1) {
+            throw new IllegalArgumentException("maxBodyBytes must be >= 1, got " + maxBodyBytes);
+        }
+        this.maxBodyBytes = maxBodyBytes;
         this.executor = Executors.newVirtualThreadPerTaskExecutor();
         this.server = HttpServer.create(address, 0);
         server.setExecutor(executor);
@@ -82,7 +97,21 @@ public final class ExampleHttpServer implements AutoCloseable {
      * @throws IOException if the address can't be bound
      */
     public static ExampleHttpServer start(InetSocketAddress address, RuleCatalog catalog) throws IOException {
-        return new ExampleHttpServer(address, catalog);
+        return start(address, catalog, DEFAULT_MAX_BODY_BYTES);
+    }
+
+    /**
+     * Starts a server with a custom request-body limit.
+     *
+     * @param address where to listen; port 0 picks a free port
+     * @param catalog the rules to validate with
+     * @param maxBodyBytes larger request bodies are rejected with {@code 413}
+     * @return the running server
+     * @throws IOException if the address can't be bound
+     */
+    public static ExampleHttpServer start(InetSocketAddress address, RuleCatalog catalog, long maxBodyBytes)
+            throws IOException {
+        return new ExampleHttpServer(address, catalog, maxBodyBytes);
     }
 
     /**
@@ -116,7 +145,7 @@ public final class ExampleHttpServer implements AutoCloseable {
     }
 
     /**
-     * Entry point: {@code [--port N] [--catalog file.json]}.
+     * Entry point: {@code [--port N] [--catalog file.json] [--max-body-mb N]}.
      *
      * @param args command-line arguments
      * @throws IOException if the port can't be bound
@@ -124,14 +153,17 @@ public final class ExampleHttpServer implements AutoCloseable {
     public static void main(String[] args) throws IOException {
         int port = 8080;
         RuleCatalog catalog = null;
+        long maxBodyBytes = DEFAULT_MAX_BODY_BYTES;
         for (int i = 0; i + 1 < args.length; i += 2) {
             switch (args[i]) {
                 case "--port" -> port = Integer.parseInt(args[i + 1]);
                 case "--catalog" -> catalog = JsonRuleCatalog.watching(Path.of(args[i + 1]), ExampleRuleLogic.REGISTRY);
+                case "--max-body-mb" -> maxBodyBytes = Long.parseLong(args[i + 1]) * 1024 * 1024;
                 default -> throw new IllegalArgumentException("Unknown argument " + args[i]);
             }
         }
-        ExampleHttpServer server = start(new InetSocketAddress(port), catalog != null ? catalog : bundledCatalog());
+        ExampleHttpServer server = start(new InetSocketAddress(port),
+                catalog != null ? catalog : bundledCatalog(), maxBodyBytes);
         Runtime.getRuntime().addShutdownHook(new Thread(server::close));
         LOG.log(Level.INFO, "Listening on http://localhost:{0}/validate", String.valueOf(server.port()));
     }
@@ -166,32 +198,62 @@ public final class ExampleHttpServer implements AutoCloseable {
             boolean ndjsonOut = NDJSON.equals(mediaType(exchange.getRequestHeaders().getFirst("Accept"), JSON))
                     || "ndjson".equals(RunRequest.params(exchange.getRequestURI().getRawQuery()).get("format"));
 
-            exchange.getResponseHeaders().set("Content-Type", ndjsonOut ? NDJSON : JSON);
-            exchange.sendResponseHeaders(200, 0); // chunked: stream as we go
-            long start = System.nanoTime();
-            InputStream body = exchange.getRequestBody();
-            OutputStream out = exchange.getResponseBody();
-            try (RecordSource records = contentType.equals(NDJSON)
-                            ? JsonRecordSources.lines(body) : JsonRecordSources.array(body);
-                    JsonOutcomeWriter writer = ndjsonOut ? JsonOutcomeWriter.lines(out)
-                            : JsonOutcomeWriter.document(out)) {
-                try {
-                    RunSummary summary = engine.run(records, snapshot, request.options(), writer);
-                    writer.finish(summary);
-                    LOG.log(Level.INFO, "Validated {0} records: {1} results, {2} errors in {3} ms",
-                            summary.recordsRead(), summary.resultCount(), summary.errorCount(),
-                            (System.nanoTime() - start) / 1_000_000);
-                } catch (JsonSourceException e) {
-                    LOG.log(Level.WARNING, "Request body is malformed: {0}", e.getMessage());
-                    writer.abort(e.getMessage());
-                } catch (RuntimeException e) {
-                    LOG.log(Level.ERROR, "Validation failed", e);
-                    abortQuietly(writer, "Validation failed; see server log");
+            // Read the whole upload before writing anything, so half-duplex clients can't deadlock (see class doc).
+            Path spool = Files.createTempFile("dq-request-", ".body");
+            try {
+                if (!spool(exchange.getRequestBody(), spool, maxBodyBytes)) {
+                    respondError(exchange, 413, "Request body exceeds " + maxBodyBytes + " bytes");
+                    return;
                 }
+                exchange.getResponseHeaders().set("Content-Type", ndjsonOut ? NDJSON : JSON);
+                exchange.sendResponseHeaders(200, 0); // chunked: stream as we go
+                long start = System.nanoTime();
+                InputStream body = Files.newInputStream(spool);
+                OutputStream out = exchange.getResponseBody();
+                try (RecordSource records = contentType.equals(NDJSON)
+                                ? JsonRecordSources.lines(body) : JsonRecordSources.array(body);
+                        JsonOutcomeWriter writer = ndjsonOut ? JsonOutcomeWriter.lines(out)
+                                : JsonOutcomeWriter.document(out)) {
+                    try {
+                        RunSummary summary = engine.run(records, snapshot, request.options(), writer);
+                        writer.finish(summary);
+                        LOG.log(Level.INFO, "Validated {0} records: {1} results, {2} errors in {3} ms",
+                                summary.recordsRead(), summary.resultCount(), summary.errorCount(),
+                                (System.nanoTime() - start) / 1_000_000);
+                    } catch (JsonSourceException e) {
+                        LOG.log(Level.WARNING, "Request body is malformed: {0}", e.getMessage());
+                        writer.abort(e.getMessage());
+                    } catch (RuntimeException e) {
+                        LOG.log(Level.ERROR, "Validation failed", e);
+                        abortQuietly(writer, "Validation failed; see server log");
+                    }
+                }
+            } finally {
+                Files.deleteIfExists(spool);
             }
         } catch (UncheckedIOException | IOException e) {
             LOG.log(Level.DEBUG, "Client went away: {0}", e.getMessage()); // nothing left to tell the client
         }
+    }
+
+    /**
+     * Copies the request body to {@code target} in fixed-size chunks.
+     *
+     * @return {@code false} if the body exceeds {@code limit} bytes; copying then stops early
+     */
+    private static boolean spool(InputStream body, Path target, long limit) throws IOException {
+        byte[] buffer = new byte[64 * 1024];
+        long total = 0;
+        try (body; OutputStream out = Files.newOutputStream(target)) {
+            for (int read = body.read(buffer); read != -1; read = body.read(buffer)) {
+                total += read;
+                if (total > limit) {
+                    return false;
+                }
+                out.write(buffer, 0, read);
+            }
+        }
+        return true;
     }
 
     private static void abortQuietly(JsonOutcomeWriter writer, String reason) {
