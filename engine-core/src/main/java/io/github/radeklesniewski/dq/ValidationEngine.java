@@ -2,7 +2,7 @@ package io.github.radeklesniewski.dq;
 
 import io.github.radeklesniewski.dq.internal.FieldPaths;
 import io.github.radeklesniewski.dq.internal.RecordKeys;
-import io.github.radeklesniewski.dq.internal.SequentialRun;
+import io.github.radeklesniewski.dq.internal.Runs;
 import io.github.radeklesniewski.dq.record.RecordSource;
 import io.github.radeklesniewski.dq.rule.RuleCatalog;
 import java.util.Objects;
@@ -25,11 +25,16 @@ import java.util.Objects;
  *       is bounded by the batch size and the catalog size, not by the input size.</li>
  *   <li>Failures are isolated. A failing (rule, record) pair becomes a {@link RuleError}. An unreadable or
  *       unidentifiable record becomes a {@link RecordError}. The run carries on either way.</li>
- *   <li>Output order is deterministic: input record order, then catalog order.</li>
+ *   <li>Output order is deterministic: input record order, then catalog order. The exception is the opt-in
+ *       {@link ExecutionMode#PARALLEL_UNORDERED} mode.</li>
+ *   <li>The sink is called from one thread at a time (the calling thread), in every execution mode.</li>
  * </ul>
  *
  * <p>The run aborts with an exception only on caller-side problems: an invalid catalog (checked before any record is
  * read), a sink that throws, a source that fails other than with {@code RecordReadException}, or a fatal JVM error.
+ *
+ * <p>A run is cancelled by interrupting its calling thread ({@link RunCancelledException}). Parallel runs own a
+ * worker pool that is shut down before {@code run} returns or throws, so no thread outlives a run.
  *
  * <p>Immutable and thread-safe. One instance can serve any number of concurrent runs.
  */
@@ -86,6 +91,7 @@ public final class ValidationEngine {
      * @param sink receives every outcome as it is produced, from one thread at a time
      * @return totals for the run
      * @throws IllegalArgumentException if the catalog is invalid (e.g. duplicate rule ids); nothing has been read yet
+     * @throws RunCancelledException if the calling thread is interrupted; outcomes emitted so far were delivered
      * @throws RuntimeException whatever {@code sink} or a broken {@code records} source throws
      */
     public RunSummary run(RecordSource records, RuleCatalog catalog, RunOptions options, OutcomeSink sink) {
@@ -93,7 +99,7 @@ public final class ValidationEngine {
         Objects.requireNonNull(catalog, "catalog");
         Objects.requireNonNull(options, "options");
         Objects.requireNonNull(sink, "sink");
-        return new SequentialRun(catalog, options, recordKeys, sink).execute(records);
+        return Runs.execute(records, catalog, options, recordKeys, sink);
     }
 
     @Override

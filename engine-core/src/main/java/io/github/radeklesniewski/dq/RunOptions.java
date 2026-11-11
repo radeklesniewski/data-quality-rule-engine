@@ -19,15 +19,26 @@ public final class RunOptions {
     private final int batchSize;
     private final RuleFilter ruleFilter;
     private final boolean emitOutOfScope;
+    private final ExecutionMode executionMode;
+    private final int parallelism;
+    private final int maxInFlightBatches;
 
     private RunOptions(Builder builder) {
         this.batchSize = builder.batchSize;
         this.ruleFilter = builder.ruleFilter;
         this.emitOutOfScope = builder.emitOutOfScope;
+        this.executionMode = builder.executionMode;
+        this.parallelism = builder.parallelism != null
+                ? builder.parallelism
+                : Runtime.getRuntime().availableProcessors();
+        this.maxInFlightBatches = builder.maxInFlightBatches != null
+                ? builder.maxInFlightBatches
+                : 2 * parallelism;
     }
 
     /**
-     * Returns the default options: batches of {@value #DEFAULT_BATCH_SIZE}, all rules selected, no out-of-scope results.
+     * Returns the default options: batches of {@value #DEFAULT_BATCH_SIZE}, all rules selected, no out-of-scope
+     * results, sequential execution.
      *
      * @return the default options
      */
@@ -50,7 +61,13 @@ public final class RunOptions {
      * @return a builder pre-filled with these options
      */
     public Builder toBuilder() {
-        return new Builder().batchSize(batchSize).ruleFilter(ruleFilter).emitOutOfScope(emitOutOfScope);
+        return new Builder()
+                .batchSize(batchSize)
+                .ruleFilter(ruleFilter)
+                .emitOutOfScope(emitOutOfScope)
+                .executionMode(executionMode)
+                .parallelism(parallelism)
+                .maxInFlightBatches(maxInFlightBatches);
     }
 
     /**
@@ -84,23 +101,57 @@ public final class RunOptions {
         return emitOutOfScope;
     }
 
+    /**
+     * Returns how the run uses threads and orders its output (default {@link ExecutionMode#SEQUENTIAL}).
+     *
+     * @return how the run uses threads and orders its output
+     */
+    public ExecutionMode executionMode() {
+        return executionMode;
+    }
+
+    /**
+     * Returns the number of worker threads in the parallel modes (default: available processors). Ignored in
+     * {@link ExecutionMode#SEQUENTIAL}.
+     *
+     * @return the number of worker threads, at least 1
+     */
+    public int parallelism() {
+        return parallelism;
+    }
+
+    /**
+     * Returns the maximum number of batches read but not yet emitted in the parallel modes (default
+     * {@code 2 × parallelism}). Reading pauses when the limit is reached. This bounds memory to roughly
+     * {@code maxInFlightBatches × batchSize} records and their outcomes. Ignored in {@link ExecutionMode#SEQUENTIAL}.
+     *
+     * @return the in-flight batch limit, at least 1
+     */
+    public int maxInFlightBatches() {
+        return maxInFlightBatches;
+    }
+
     @Override
     public boolean equals(Object other) {
         return other instanceof RunOptions that
                 && batchSize == that.batchSize
                 && emitOutOfScope == that.emitOutOfScope
-                && ruleFilter.equals(that.ruleFilter);
+                && ruleFilter.equals(that.ruleFilter)
+                && executionMode == that.executionMode
+                && parallelism == that.parallelism
+                && maxInFlightBatches == that.maxInFlightBatches;
     }
 
     @Override
     public int hashCode() {
-        return Objects.hash(batchSize, ruleFilter, emitOutOfScope);
+        return Objects.hash(batchSize, ruleFilter, emitOutOfScope, executionMode, parallelism, maxInFlightBatches);
     }
 
     @Override
     public String toString() {
         return "RunOptions[batchSize=" + batchSize + ", ruleFilter=" + ruleFilter
-                + ", emitOutOfScope=" + emitOutOfScope + "]";
+                + ", emitOutOfScope=" + emitOutOfScope + ", executionMode=" + executionMode
+                + ", parallelism=" + parallelism + ", maxInFlightBatches=" + maxInFlightBatches + "]";
     }
 
     /** Builder for {@link RunOptions}. Not thread-safe. */
@@ -109,6 +160,9 @@ public final class RunOptions {
         private int batchSize = DEFAULT_BATCH_SIZE;
         private RuleFilter ruleFilter = RuleFilter.all();
         private boolean emitOutOfScope;
+        private ExecutionMode executionMode = ExecutionMode.SEQUENTIAL;
+        private Integer parallelism;
+        private Integer maxInFlightBatches;
 
         private Builder() {
         }
@@ -121,10 +175,7 @@ public final class RunOptions {
          * @throws IllegalArgumentException if {@code batchSize < 1}
          */
         public Builder batchSize(int batchSize) {
-            if (batchSize < 1) {
-                throw new IllegalArgumentException("batchSize must be >= 1, got " + batchSize);
-            }
-            this.batchSize = batchSize;
+            this.batchSize = requirePositive("batchSize", batchSize);
             return this;
         }
 
@@ -152,12 +203,52 @@ public final class RunOptions {
         }
 
         /**
+         * Sets the execution mode (default {@link ExecutionMode#SEQUENTIAL}).
+         *
+         * @param executionMode the mode
+         * @return this builder
+         */
+        public Builder executionMode(ExecutionMode executionMode) {
+            this.executionMode = Objects.requireNonNull(executionMode, "executionMode");
+            return this;
+        }
+
+        /**
+         * Sets the worker thread count for the parallel modes (default: available processors).
+         *
+         * @param parallelism at least 1
+         * @return this builder
+         */
+        public Builder parallelism(int parallelism) {
+            this.parallelism = requirePositive("parallelism", parallelism);
+            return this;
+        }
+
+        /**
+         * Sets the in-flight batch limit for the parallel modes (default {@code 2 × parallelism}).
+         *
+         * @param maxInFlightBatches at least 1
+         * @return this builder
+         */
+        public Builder maxInFlightBatches(int maxInFlightBatches) {
+            this.maxInFlightBatches = requirePositive("maxInFlightBatches", maxInFlightBatches);
+            return this;
+        }
+
+        /**
          * Builds the options.
          *
          * @return the immutable options
          */
         public RunOptions build() {
             return new RunOptions(this);
+        }
+
+        private static int requirePositive(String name, int value) {
+            if (value < 1) {
+                throw new IllegalArgumentException(name + " must be >= 1, got " + value);
+            }
+            return value;
         }
     }
 }

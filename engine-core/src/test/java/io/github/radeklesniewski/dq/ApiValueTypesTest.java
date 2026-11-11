@@ -91,13 +91,30 @@ class ApiValueTypesTest {
         RunOptions options = RunOptions.builder()
                 .ruleFilter(RuleFilter.category("tax"))
                 .emitOutOfScope(true)
+                .executionMode(ExecutionMode.PARALLEL_ORDERED)
+                .parallelism(3)
+                .maxInFlightBatches(5)
                 .build();
 
         assertThat(RunOptions.defaults().ruleFilter()).isEqualTo(RuleFilter.all());
         assertThat(RunOptions.defaults().emitOutOfScope()).isFalse();
         assertThat(options.toBuilder().build()).isEqualTo(options).hasSameHashCodeAs(options);
-        assertThat(options).hasToString(
-                "RunOptions[batchSize=1000, ruleFilter=category any of [tax], emitOutOfScope=true]");
+        assertThat(options).hasToString("RunOptions[batchSize=1000, ruleFilter=category any of [tax], "
+                + "emitOutOfScope=true, executionMode=PARALLEL_ORDERED, parallelism=3, maxInFlightBatches=5]");
         assertThatThrownBy(() -> RunOptions.builder().ruleFilter(null)).isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void executionDefaults() {
+        RunOptions defaults = RunOptions.defaults();
+
+        assertThat(defaults.executionMode()).isEqualTo(ExecutionMode.SEQUENTIAL);
+        assertThat(defaults.parallelism()).isEqualTo(Runtime.getRuntime().availableProcessors());
+        assertThat(defaults.maxInFlightBatches()).isEqualTo(2 * defaults.parallelism());
+        assertThat(RunOptions.builder().parallelism(3).build().maxInFlightBatches()).isEqualTo(6);
+        assertThatThrownBy(() -> RunOptions.builder().parallelism(0)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> RunOptions.builder().maxInFlightBatches(0))
+                .isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> RunOptions.builder().executionMode(null)).isInstanceOf(NullPointerException.class);
     }
 }
