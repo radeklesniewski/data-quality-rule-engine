@@ -4,7 +4,7 @@ package io.github.radeklesniewski.dq;
  * How a run spreads work over threads, and what that means for output order (ADR-0006).
  *
  * <p>In every mode the sink is called from one thread at a time, the summary counts are identical, and memory stays
- * bounded. In the parallel modes it's bounded by {@link RunOptions#maxInFlightBatches()} × batch size.
+ * bounded. In the parallel modes it's bounded by ({@link RunOptions#maxInFlightBatches()} + 1) × batch size records.
  */
 public enum ExecutionMode {
 

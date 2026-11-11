@@ -43,3 +43,6 @@ bin/
 
 ### Local-only task brief ###
 REQUIREMENTS.md
+
+### Local-only review instructions ###
+data-quality-engine-ai-review.md

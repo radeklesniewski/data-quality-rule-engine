@@ -12,13 +12,16 @@ decision comes from a declarative mapping. Faults are isolated per rule and reco
 ## Requirements
 
 JDK 25. The Gradle wrapper is included. If JDK 25 isn't installed, Gradle downloads it automatically
-(foojay toolchain resolver). If `java` isn't on your `PATH`, point `JAVA_HOME` at any JDK (17+) to run Gradle itself.
+(foojay toolchain resolver, which needs network access). If `java` isn't on your `PATH`, point `JAVA_HOME` at any
+JDK (17+) to run Gradle itself. The code only uses Java 21 features and compiles with `--release 21`. Offline with
+only JDK 21, change `java = "25"` to `"21"` in `gradle/libs.versions.toml`.
 
 ## Build and test
 
 ```bash
 ./gradlew build                      # compile, Javadoc, all tests, coverage (≈10 s)
 ./gradlew test                       # tests only
+./gradlew clean test --no-build-cache   # force tests to really run (the build cache can otherwise restore results)
 ./gradlew :engine-core:memoryTest    # 1,000,000 records in every execution mode under a 64 MB heap
 ./gradlew :engine-core:jmh           # JMH throughput benchmarks (≈2 min)
 ```
@@ -72,7 +75,8 @@ Rules can also be defined as data. See `example-http/src/main/resources/example-
 
 ```bash
 ./gradlew :example-http:run          # http://localhost:8080 (bundled example catalog)
-# or: ./gradlew :example-http:run --args="--port 9090 --catalog /path/to/catalog.json"   (reloads on change)
+# or: ./gradlew :example-http:run --args="--port 9090 --catalog /path/to/catalog.json --max-body-mb 256"
+#     (the catalog file reloads on change; bodies over the limit get 413, default 1024 MB)
 ```
 
 ```bash
@@ -101,9 +105,16 @@ curl -s 'localhost:8080/rules?status=DRAFT'   # list the catalog, with the same 
 | `emitOutOfScope=true` | `NOT_APPLICABLE` results for rules outside a record's country |
 | `format=ndjson` | NDJSON response (same as `Accept: application/x-ndjson`) |
 
-The response streams. The status `200` is sent before the body has been fully read, so **a response without a
-`summary` is incomplete**. If the body turns out to be malformed partway through, the response ends with an `error`
-instead.
+How a request is processed:
+
+1. The query parameters are checked (`400` on mistakes), and the body is copied to a temporary file. Bodies over the
+   limit get `413`. Reading the whole upload first means any client works, including ones that only read the
+   response after sending everything, like `HttpURLConnection`, Python `requests` and many proxies.
+2. Records are then read lazily from that file and validated, and outcomes are streamed back as they're produced.
+   Memory stays bounded at any body size.
+3. The `200` status is sent before the records are parsed, so **a response without a `summary` is incomplete**. If
+   the body is malformed partway through, or has anything after the closing `]`, the response ends with an `error`.
+   Records before that point are still validated.
 
 ## Repository conventions
 

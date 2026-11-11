@@ -130,6 +130,8 @@ one failing rule or record and asserts that the rest of the batch completes and 
 - Concurrency tests must be deterministic: prove overlap with barriers, not timing. Check for leaked
   `dq-engine-run*` threads after parallel runs, and clear the interrupt flag after cancellation tests.
 - Don't mock what you own. Use real small rules and in-memory sinks.
+- HTTP tests must include a client that uploads the whole body before reading the response (`HttpURLConnection`),
+  not only `java.net.http.HttpClient`, which reads and writes at the same time and hides transport deadlocks.
 
 ## Git workflow
 

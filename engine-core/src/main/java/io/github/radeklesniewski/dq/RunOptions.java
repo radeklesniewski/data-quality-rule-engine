@@ -121,9 +121,10 @@ public final class RunOptions {
     }
 
     /**
-     * Returns the maximum number of batches read but not yet emitted in the parallel modes (default
-     * {@code 2 × parallelism}). Reading pauses when the limit is reached. This bounds memory to roughly
-     * {@code maxInFlightBatches × batchSize} records and their outcomes. Ignored in {@link ExecutionMode#SEQUENTIAL}.
+     * Returns the maximum number of batches submitted to workers but not yet emitted in the parallel modes (default
+     * {@code 2 × parallelism}). Reading pauses when the limit is reached. The reader holds one more batch while it
+     * waits for a free slot, so at most {@code (maxInFlightBatches + 1) × batchSize} records (plus the outcomes of
+     * the in-flight batches) are in memory. Ignored in {@link ExecutionMode#SEQUENTIAL}.
      *
      * @return the in-flight batch limit, at least 1
      */

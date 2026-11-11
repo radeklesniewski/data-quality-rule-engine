@@ -73,6 +73,14 @@ Priority order follows the brief: **core done well before extended features**.
 - ☑ Clean clone with an empty Gradle home: `./gradlew build :engine-core:memoryTest` passes (≈25 s).
 - ☐ Push to GitHub (needs a remote); optionally CI (GitHub Actions running `build` + `memoryTest`).
 
+## M8 — Review follow-up
+- ☑ D1: the HTTP example spools the request body to a temp file (size limit → 413) before validating. This fixes a
+  deadlock with half-duplex clients (regression test with 200k records over `HttpURLConnection`).
+- ☑ D2: `JsonRecordSources.array` reports content after the closing `]` instead of silently dropping it.
+- ☑ Docs match measured behaviour: parallel bound `(maxInFlightBatches + 1) × batchSize`, severity breakdown
+  semantics, unbounded single-record size, Java 21 compatibility, build-cache caveat.
+- ☐ Known limitations and future work: DESIGN.md §10 and §11.
+
 ## Open questions / assumptions log
 - ☑ Record id missing → record-level error, rule evaluations skipped (confirmed by user).
 - ☑ Parallel vs ordered → ADR-0006 (confirmed by user).

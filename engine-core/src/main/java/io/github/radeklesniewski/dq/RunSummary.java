@@ -10,6 +10,15 @@ import java.util.Objects;
 /**
  * Totals for one validation run (F4), computed incrementally from counters. Results are never retained.
  *
+ * <p><strong>Breakdowns count results, not violations.</strong> {@link #resultsBySeverity()} counts every result
+ * under its rule's severity, whatever the decision. A {@code VALID} or {@code NOT_APPLICABLE} result of an
+ * {@code ERROR} rule counts as {@code ERROR}. This is the literal reading of "results by severity". A host that wants
+ * "violations by severity" counts the {@code INVALID}/{@code REVIEW} results it receives in its sink.
+ *
+ * <p>Errors aren't results: they're counted in {@link #ruleErrorCount()} and {@link #recordErrorCount()} only.
+ * Counters are incremented just before an outcome is handed to the sink. If the sink throws, the run aborts and no
+ * summary is returned, so the counts and the delivered outcomes can't diverge.
+ *
  * @param rulesSelected rules that took part: RELEASED and selected by the run's filter. 0 means nothing could run
  * @param recordsRead records taken from the source, including unreadable ones
  * @param batches batches processed

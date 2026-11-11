@@ -14,15 +14,18 @@ reports, correlating results with the input file, and tests. Parallelism and ord
 | Mode                   | Order of emitted outcomes                               | Extra memory                      |
 |------------------------|---------------------------------------------------------|-----------------------------------|
 | `SEQUENTIAL` (default) | Input record order, then catalog rule order             | 1 batch                           |
-| `PARALLEL_ORDERED`     | Identical to `SEQUENTIAL`                               | up to `maxInFlightBatches` batches |
-| `PARALLEL_UNORDERED`   | In order within a batch; batches in completion order    | up to `maxInFlightBatches` batches |
+| `PARALLEL_ORDERED`     | Identical to `SEQUENTIAL`                               | up to `maxInFlightBatches` + 1 batches |
+| `PARALLEL_UNORDERED`   | In order within a batch; batches in completion order    | up to `maxInFlightBatches` + 1 batches |
 
 **How the parallel modes work:**
 - The calling thread reads batches and submits each to a per-run pool of `parallelism` **platform** threads
   (default: available processors). Rule logic is CPU-bound, so virtual threads would add nothing. Workers only
   compute a batch's outcome list.
 - A window of at most `maxInFlightBatches` (default `2 × parallelism`) gives **backpressure**. When it's full, the
-  reader stops and emits a finished batch first. Memory stays O(maxInFlightBatches × batchSize × rules).
+  reader stops and emits a finished batch first. The reader holds the batch it just read while it waits for a slot,
+  so the true bound is **(maxInFlightBatches + 1) × batchSize** records plus the outcomes of in-flight batches. This
+  was measured in review: 29 records outstanding with `batchSize=10`, `maxInFlightBatches=2`. Memory stays
+  O((maxInFlightBatches + 1) × batchSize × rules).
 - **All emission happens on the calling thread**, so in every mode the sink is called by exactly one thread, and
   hosts never have to write thread-safe sinks. Summary counters stay single-threaded too.
 - Ordered mode emits futures in submission order. Unordered uses an `ExecutorCompletionService`.

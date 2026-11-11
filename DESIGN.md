@@ -7,7 +7,9 @@ behind it. Detailed decision records are in [`docs/adr/`](docs/adr/README.md), a
 
 **Status:** every functional requirement (F1–F6) is implemented and tested, plus an example HTTP host.
 1,000,000 records stream through a 64 MB heap in about 0.4 s. A realistic 30-rule catalog runs at about 225k
-records/s sequentially and about 650–800k records/s in parallel (16 threads).
+records/s sequentially and about 650–800k records/s in parallel (16 threads). An independent review of the finished
+project found two issues, both now fixed: an HTTP deadlock with half-duplex clients, and silently ignored content
+after a JSON array. The remaining known limitations and the plan beyond them are in §10 and §11.
 
 ---
 
@@ -86,6 +88,7 @@ caller gets results and errors together and the run carries on.
 | Source can't read one record (`RecordReadException`, e.g. a JSON element that isn't an object, a broken NDJSON line) | `RecordError` with the input position | next record |
 | Record has no usable id or a non-string country | `RecordError` (id if known) | its rules are skipped |
 | Invalid catalog, throwing filter | exception **before any record is read** | configuration error, fail fast |
+| JSON array input is malformed, or has content after its closing `]` | `JsonSourceException` | records read before that point are still validated and delivered; then the run fails (never silently truncated) |
 | Sink throws, source is fatally broken, `OutOfMemoryError` | propagates | records read before a source break are still validated and delivered first |
 
 Other details:
@@ -98,24 +101,39 @@ Other details:
 - `OutOfMemoryError` and other `VirtualMachineError`s are deliberately *not* caught (`StackOverflowError` is). Once
   the JVM is in that state, "continue with the next record" is no longer a promise anyone can keep.
 
-## 4. Bounded memory and scale (F5)
+## 4. Bounded memory, scale and the run summary (F4, F5)
 
 - **Pull in, push out.** The engine pulls `batchSize` records from the `RecordSource`, evaluates them, pushes each
   outcome to the sink, then pulls the next batch. Nothing outlives its batch. `RunSummary` is built from `long`
   counters. Working memory is O(batch size × rules), independent of input size. The JSON adapters keep this end
   to end: the parser reads one array element at a time, and the writer emits as it goes.
+- **What is *not* bounded: the size of a single record.** Memory is bounded in the *number* of records, not in the
+  size of one. A record (or one NDJSON line) is parsed into memory whole, and a rule that reads a whole sub-object
+  copies it into provenance. A pathological 1 GB record needs about 1 GB. Per-record limits are listed in §10.
 - **Evidence:** `./gradlew :engine-core:memoryTest` runs 1M records (3M results) in every execution mode under
   `-Xmx64m`, and refuses to run with a bigger heap. Keeping the results would need several hundred MB. Peak heap is
   roughly 25–45 MB, varying between runs. A test checks that batch *n+1* isn't read before batch *n* has been
-  emitted. The HTTP test streams 50k records through a single request.
+  emitted. Over HTTP, a test sends 200k records (18 MB) from a client that uploads everything before reading, and
+  another streams 50k records through a single request.
 - **Parallelism is opt-in, and order is a choice** (ADR-0006). `SEQUENTIAL` (default), `PARALLEL_ORDERED`
   (identical output, worker pool) and `PARALLEL_UNORDERED` (batches emitted as they finish).
-  `maxInFlightBatches` bounds the window and gives backpressure, so memory stays bounded in parallel too. **The
+  `maxInFlightBatches` bounds the window and gives backpressure, so memory stays bounded in parallel too. The exact
+  bound is `(maxInFlightBatches + 1) × batchSize` records, because the reader holds one more batch while it waits for
+  a free slot (measured: 29 outstanding records at `batchSize=10`, `maxInFlightBatches=2`). **The
   sink is always called from the calling thread**, so hosts never write thread-safe sinks. The per-run pool is shut
   down in `finally`, and tests check that no worker thread leaks after success, sink failure, fatal error or
   cancellation.
 - **Cancellation:** interrupting the calling thread stops the run at the next batch boundary with
   `RunCancelledException`. The exception carries a partial summary that counts exactly what was delivered.
+- **Summary (F4):** results, rule errors and record errors, plus results by decision and by severity. Every enum
+  value is present, with zeros where nothing was counted. Counters are incremented just before the outcome goes to
+  the sink. If the sink throws, the run aborts without a summary, so counts and delivered outcomes can't diverge.
+  **The breakdowns count results, not violations.** A `VALID` or `NOT_APPLICABLE` result of an `ERROR` rule counts
+  under `ERROR` (in the brief's scenario, 9 × `ERROR` although only 4 are `INVALID`). That's the literal reading of
+  "results by severity". A host that wants "violations by severity" counts `INVALID`/`REVIEW` results in its sink.
+- **The HTTP example keeps the same property.** It copies the upload to a temporary file through a 64 KiB buffer,
+  rejecting bodies over the limit with `413`. The engine then reads records lazily from that file, and the response
+  is streamed (ADR-0003).
 
 ## 5. Rule selection (F6)
 
@@ -159,7 +177,7 @@ The brief left these open on purpose. What I did about each:
   rejected at build or load time, never mid-run.
 - **Operability:** cancellation, a run summary, safe-to-log errors, `toString()`s on options and filters for logs.
 - **Evolvability:** builders for anything that will grow. Sealed types give exhaustive handling.
-- **Documentation and tests:** Javadoc on all public API (doclint enabled). 213 tests (plus the memory test), including
+- **Documentation and tests:** Javadoc on all public API (doclint enabled). 219 tests (plus the memory test), including
   equivalence across execution modes, concurrency tests that use barriers rather than timing, an HTTP integration
   test, a memory test and JMH benchmarks. Shared test fixtures mean the brief's scenario is defined once.
 
@@ -173,6 +191,11 @@ The brief left these open on purpose. What I did about each:
 - Country matching is exact and case-sensitive. Normalising data is the host's job.
 - Field paths are dot-separated (`address.city`). Array indexing isn't supported.
 - Whoever opens a `RecordSource` closes it. The engine doesn't.
+- `null` and a missing field can't be told apart in provenance (both are absent). That's deliberate (ADR-0008),
+  because rules shouldn't behave differently for the two.
+- The build targets Java 25 through a Gradle toolchain (downloaded automatically when missing). The brief asks for
+  "21 or later". The code only uses Java 21 features and compiles with `--release 21` (verified in review), so
+  lowering the toolchain is a one-line change (§10).
 
 ## 9. Trade-offs under the time-box
 
@@ -182,27 +205,54 @@ The brief left these open on purpose. What I did about each:
 - **Parallel speed-up is about 3×, not 16×.** Reading, emitting and counting are single-threaded by design (the sink
   contract), and every outcome allocates. I chose the simpler single-emitter contract over raw throughput.
 - **The JSON array format can't recover from syntax errors**, because the parser loses its place. Records before the
-  break are validated, and then the run fails clearly. NDJSON is recommended for untrusted bulk input, since a bad
-  line costs only that line.
-- **The HTTP 200 is sent before the body has been fully read** (streaming). A body that turns out to be malformed
-  produces `"error"` and no `"summary"`. Buffering to get a proper 400 would give up bounded memory.
+  break are validated, and then the run fails clearly. The same applies to anything after the closing `]`. NDJSON is
+  recommended for untrusted bulk input, since a bad line costs only that line.
+- **The HTTP example spools the request body to disk before validating.** The first version read the request while
+  writing the response. That deadlocked clients that upload everything before reading (reproduced with 200k
+  records). Spooling works with every client and keeps memory bounded. It costs disk I/O and a later first byte.
+  Because the 200 status is still sent before parsing, a body that turns out to be malformed produces `"error"` and
+  no `"summary"`. Parsing twice to get a proper 400 didn't seem worth it.
 - **Rule logic is Java code referenced by id**, not an expression language. It's type-safe, testable and debuggable,
   but a new *kind* of check needs a deploy.
 - **Provenance tracking costs one small object per (rule, record)**, which the benchmarks include. I judged explanations
   that can't be wrong to be worth it.
 
-## 10. What I'd do next
+## 10. Known limitations to address next (found in review)
 
-1. **Parameterised logic in catalogs** (`{"logic": "minLength", "params": {"field": "vatId", "min": 9}}`), so new
-   rules of an existing kind are pure data. Then a JSON Schema for catalog files.
-2. **A host-supplied `Executor`** for the parallel modes (a shared pool across HTTP requests), and **per-rule timeouts**
-   on top of it.
-3. **Reduce per-outcome allocation**, guided by an allocation profile. The parallel path is GC-bound.
-4. **Metrics hook** (`RunListener`: per-batch timing, per-rule error rates) for operations dashboards.
-5. **Rule dependencies** (e.g. skip `ibanChecksum` when `ibanFormat` is INVALID), which the current model
+These came out of an independent review of the finished project. None breaks a requirement. They're small (S) or
+medium (M) changes, listed in the order I'd do them.
+
+| # | Limitation | Why it matters | Fix | Effort |
+|---|---|---|---|---|
+| 1 | The HTTP example logs a client disconnect as `SEVERE: Validation failed` (`JacksonIOException` isn't an `UncheckedIOException`). The engine itself handles it correctly: the sink failure aborts the run and isn't blamed on a rule. | Log noise and false alarms for operators. | Recognise `IOException` in the cause chain and log at `DEBUG`. | S |
+| 2 | Rule logic that throws an exception whose `getMessage()` itself throws escapes isolation, because `RuleError.messageOf` runs outside the `try`. | Pathological, but third-party rule code shouldn't be able to stop a run. | Guard `messageOf` and fall back to the class name. Test with such an exception. | S |
+| 3 | No limit on the size of a single record or NDJSON line, and HTTP has no read/write timeouts or cap on concurrent requests (the body size *is* limited, `413`). | One huge record or many slow clients can exhaust memory or threads. | Jackson `StreamReadConstraints` (max document or element size), a max line length for NDJSON, server timeouts, a request semaphore. | S–M |
+| 4 | `DataRecord.ofMap` deep-copies maps and lists but keeps other values as given, so a mutable object (e.g. `StringBuilder`) can be changed by rule logic. `JsonDataRecord` doesn't copy its node (documented). | Immutability is enforced for the JSON value model only. | Accept only the JSON value model in `ofMap`, or document the requirement in its Javadoc. | S |
+| 5 | HTTP accepts an unknown `format` value silently (falls back to JSON). Each parallel request creates its own pool, and the comment in `RunRequest` suggests a cap that doesn't exist. | Surprising behaviour in the example. | Validate `format` (400). Share one pool or cap concurrent parallel requests. | S |
+| 6 | Toolchain is Java 25 although the code compiles with `--release 21`. | A reviewer with only JDK 21 and no network can't build. | Set the toolchain to 21. | S |
+| 7 | `org.gradle.caching=true` makes a repeated `./gradlew clean test` restore results from the build cache (`FROM-CACHE`) instead of running tests. | Easy to believe tests ran when they didn't. A fresh clone isn't affected. | Use `--no-build-cache`/`--rerun-tasks` when verifying (README), or disable caching for `Test` tasks. | S |
+| 8 | Missing evidence: no test runs one `ValidationEngine` from several threads at once (thread safety follows from immutability but isn't tested). `JsonRuleCatalog.watching` detects changes by modification time only. One selection test uses a static counter. | Claims that hold today but aren't pinned by tests. | A concurrent-runs test, content hashing in `watching`, an instance counter in the test. | S |
+
+## 11. Future work (beyond the task's scope)
+
+1. **Masking of sensitive values in provenance.** Today provenance carries raw values (IBAN, VAT id) and the host
+   decides what to do with them. Exceptions and logs never contain values. A `FieldValuePolicy` in `RunOptions`
+   (`FULL` / `MASKED` / `PATH_ONLY`), or a redacting `JsonOutcomeWriter`, would let a host publish results safely.
+2. **Observability hook** (`RunListener`): run duration, per-batch timing, per-rule execution counts, error rates and
+   latency, for metrics systems without a dependency in core.
+3. **A host-supplied `Executor`** for the parallel modes (one shared pool across HTTP requests), and **per-rule
+   timeouts** on top of it. A hung rule currently blocks its batch, and in ordered mode the whole run.
+4. **Reduce per-outcome allocation**, guided by an allocation profile. The parallel path is GC-bound.
+5. **Parameterised logic in catalogs** (`{"logic": "minLength", "params": {"field": "vatId", "min": 9}}`), so new rules
+   of an existing kind are pure data. Then a JSON Schema for catalog files.
+6. **Rule lifecycle:** versioned catalogs, effective dates, an audit trail of changes, and a persistent catalog store.
+   Results would then record the catalog version they were produced with.
+7. **Rule dependencies** (e.g. skip `ibanChecksum` when `ibanFormat` is INVALID), which the current model
    deliberately leaves out.
-6. **Publishing:** `maven-publish`, semantic versioning, an API-compatibility check (e.g. japicmp) in CI, and
-   GitHub Actions running `build` and `memoryTest`.
+8. **Production-grade HTTP host:** authentication, rate limiting, an asynchronous job API for very large uploads
+   (upload, poll, download) instead of one long request.
+9. **Publishing:** `maven-publish`, semantic versioning, an API-compatibility check (e.g. japicmp) and CI running
+   `build` and `memoryTest`.
 
 ## Requirement → evidence
 
@@ -214,4 +264,4 @@ The brief left these open on purpose. What I did about each:
 | F4 summary | `RunSummary` | `FixtureScenarioTest`, `ApiValueTypesTest` |
 | F5 1M records, bounded memory, configurable batches | `BatchReader`, `OutcomeSink`, `ParallelRun` | `BoundedMemoryTest` (`memoryTest`), `ValidationEngineTest$Streaming`, `EngineBenchmark` |
 | F6 composable filters, RELEASED only | `RuleFilter`, `RuleSelection` | `RuleFilterTest`, `RuleSelectionEngineTest` |
-| Example HTTP API | `ExampleHttpServer` | `ExampleHttpServerTest` |
+| Example HTTP API | `ExampleHttpServer` | `ExampleHttpServerTest` (incl. `halfDuplexClientWithALargeBodyGetsTheCompleteResponse`, `contentAfterTheArrayIsReportedNotSilentlyDropped`, `bodyOverTheLimitIsRejectedBeforeValidation`) |

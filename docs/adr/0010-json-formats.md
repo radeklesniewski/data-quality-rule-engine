@@ -15,10 +15,15 @@ adapter must keep F5's streaming guarantee and F3's fault-isolation semantics.
   A non-object element is skipped and reported as unreadable (`RecordReadException` → `RecordError`). A
   *syntax* error leaves the parser unable to find the next element, so it aborts the run with
   `JsonSourceException`. That's the honest behaviour: guessing where the next record starts would invent data.
+  **Content after the closing `]`** (a second array, stray text) is a `JsonSourceException` too, raised after
+  every record of the array has been delivered. The first version silently ignored it, which lost data without a
+  trace (found in review).
 - `lines(in)`: NDJSON, one object per line. Each line is parsed on its own, so **even a syntax error only loses that
   one line**. This is the format to recommend for large batch files.
 - Records are `JsonDataRecord`s, a `DataRecord` that reads directly from the Jackson node without copying it into
   maps. Decimals are `BigDecimal` (no float rounding of amounts or ids).
+- Neither format bounds the size of a **single** record or NDJSON line: one record is parsed into memory at a time.
+  Memory is bounded in the number of records, not in the size of one record (see DESIGN.md §4 and §10).
 
 **Catalog: `JsonRuleCatalog`. It's strict, all-or-nothing, and reports every problem at once.**
 - Format: `{"rules": [{id, label, logic, status, severity, countryScope?, categories?, decisionMapping: {mappings, default}}]}`.

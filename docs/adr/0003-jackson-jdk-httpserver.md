@@ -18,10 +18,17 @@ incrementally. The HTTP API is only an example host.
 - **Implemented (M6)** as `ExampleHttpServer`: `POST /validate` (JSON array or NDJSON in; document or NDJSON out),
   `GET /rules`, `GET /health`. Rule selection and execution mode come from query parameters, which are validated
   before the body is read (400). The handler runs on virtual threads.
-- **Streaming has an HTTP consequence:** the `200` status goes out before the body has been fully read. If the body
-  turns out to be malformed half-way, the response ends with `"error"` and **no `"summary"`**
-  (`JsonOutcomeWriter.abort`). Clients must treat a response without a summary as incomplete. The alternative,
-  buffering the whole result to pick a status code, would break bounded memory.
+- **The request body is spooled to a temporary file first, then validated and streamed back** (changed after
+  review). The first version wrote results while still reading the request. That deadlocked half-duplex clients,
+  which upload the whole body before reading anything (`HttpURLConnection`, Python `requests`, many proxies): once
+  the response filled the socket buffers, neither side progressed. This was reproduced with 200k records and is now
+  covered by `ExampleHttpServerTest#halfDuplexClientWithALargeBodyGetsTheCompleteResponse`. Spooling keeps memory
+  bounded (the copy uses a 64 KiB buffer, and the engine still reads records lazily from the file) and works with any
+  client. The costs are disk I/O and a later first byte. The temp file is owner-only and deleted when the request
+  ends. A body over the limit (`--max-body-mb`, default 1 GiB) gets `413` before any validation.
+- The `200` status is sent once the upload is stored but before the records are parsed. If the body is malformed
+  half-way, the response ends with `"error"` and **no `"summary"`** (`JsonOutcomeWriter.abort`). Clients must treat a
+  response without a summary as incomplete. Returning a `400` instead would mean parsing everything twice.
 - The catalog is snapshotted per request *before* streaming starts, so a broken catalog file is a clean 500.
-- Not done (it's an example): auth, request size or rate limits, a shared worker pool for parallel requests
-  (each parallel request creates its own pool, capped at the core count), metrics.
+- Not done (it's an example): auth, rate limits, read/write timeouts, a cap on concurrent requests, a shared worker
+  pool for parallel requests (each parallel request creates its own pool), metrics. See DESIGN.md §10–11.
