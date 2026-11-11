@@ -32,7 +32,7 @@ rule and record errors, results by decision and by severity). It costs constant 
 | Record has no usable id, a non-string country, or its `DataRecord` throws while keys are read | `RecordError` (index, id if known) | yes; none of its rules run |
 | Invalid catalog (duplicate ids, null rules) | `IllegalArgumentException` / `NullPointerException` **before any record is read** | no (configuration error) |
 | Sink throws | propagates | no; output can't be delivered |
-| Source throws anything else | propagates | no; input is broken |
+| Source throws anything else | propagates, **after** the records read before the break are validated and emitted (any batch size, any mode) | no; input is broken |
 | `OutOfMemoryError` and other `VirtualMachineError`s | propagates | no; the JVM is no longer trustworthy |
 
 Every outcome carries `recordIndex`, the zero-based input position. Errors can be located even when a record has

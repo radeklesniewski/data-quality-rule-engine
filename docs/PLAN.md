@@ -57,8 +57,13 @@ Priority order follows the brief: **core done well before extended features**.
 - ☐ (Next) Parameterised logic in catalogs; a JSON Schema for catalog files (ADR-0010).
 
 ## M6 — Example HTTP API (`example-http`)
-- ☐ `POST /validate` (body: records JSON array; query: filters, batchSize). Streams the response.
-- ☐ Integration test that starts the server on a random port.
+- ☑ `POST /validate` (JSON array or NDJSON in; document or NDJSON out, streamed), `GET /rules`, `GET /health`.
+  Query parameters: status, country, category, mode, batchSize, emitOutOfScope, format (ADR-0003).
+- ☑ `ExampleHttpServerTest`: the brief over real HTTP, all modes, NDJSON, filters, 50k-record streaming, bad
+  records, malformed body (error, no summary), 400/405/415.
+- ☑ Engine fix found here: on a fatal source error, records read before the break are validated and emitted
+  first, whatever the batch size or mode (ADR-0005).
+- ☑ `JsonOutcomeWriter.abort(reason)` for output that was already partly sent.
 
 ## M7 — Deliverables
 - ☐ `DESIGN.md`: public API, fault isolation, bounded memory, seams, trade-offs, next steps.

@@ -53,7 +53,7 @@ Packages in `engine-core`:
 ./gradlew jacocoTestReport            # coverage → */build/reports/jacoco/
 ./gradlew :engine-core:memoryTest     # 1M records, every execution mode, under -Xmx64m (tag 'memory', not part of `test`)
 ./gradlew :engine-core:jmh            # JMH throughput benchmarks, ~2 min (see docs/BENCHMARKS.md)
-./gradlew :example-http:run           # [from M6] start the demo API (port 8080)
+./gradlew :example-http:run           # demo API on :8080 (--args="--port N --catalog file.json")
 ```
 
 The build needs JDK 25. If `java` is not on PATH, set `JAVA_HOME` (locally `~/.jdks/openjdk-25.0.1`).
