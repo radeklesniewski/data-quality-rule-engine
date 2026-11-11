@@ -7,6 +7,7 @@
 module io.github.radeklesniewski.dq.core {
     exports io.github.radeklesniewski.dq;
     exports io.github.radeklesniewski.dq.record;
+    exports io.github.radeklesniewski.dq.rule;
     // io.github.radeklesniewski.dq.select is exported in M3, once it has types
     // (javac rejects exporting a package that contains only package-info.java).
 }
