@@ -24,7 +24,9 @@ import tools.jackson.databind.JsonNode;
  * <ul>
  *   <li>{@link #array(InputStream)}: a single JSON array of objects, e.g. an HTTP request body. An element that
  *       isn't an object is skipped and reported as unreadable. A <em>syntax</em> error can't be recovered from
- *       (the parser loses its place), so it aborts the run with {@link JsonSourceException}.</li>
+ *       (the parser loses its place), so it aborts the run with {@link JsonSourceException}. Content after the
+ *       closing {@code ]} (a second array, stray text) is also a {@link JsonSourceException}, raised once all
+ *       records of the array have been returned. It's never silently ignored.</li>
  *   <li>{@link #lines(InputStream)}: newline-delimited JSON (NDJSON), one object per line, typical for batch files.
  *       Each line is parsed on its own, so even a syntax error only makes that one line unreadable.
  *       Blank lines are ignored.</li>
@@ -83,6 +85,7 @@ public final class JsonRecordSources {
                         return Optional.empty(); // empty input: no records
                     }
                     if (first != JsonToken.START_ARRAY) {
+                        finished = true;
                         throw new JsonSourceException("Expected a JSON array of records but found " + first
                                 + " at " + location(), null);
                     }
@@ -90,9 +93,17 @@ public final class JsonRecordSources {
                 JsonToken token = parser.nextToken();
                 if (token == JsonToken.END_ARRAY) {
                     finished = true;
+                    // Anything but whitespace after the array (a second array, stray text) would otherwise be
+                    // silently dropped. Report it instead, after every record of the array has been delivered.
+                    JsonToken trailing = parser.nextToken();
+                    if (trailing != null) {
+                        throw new JsonSourceException("Unexpected content after the records array at " + location()
+                                + ": send exactly one JSON array (or use NDJSON for multiple chunks)", null);
+                    }
                     return Optional.empty();
                 }
                 if (token == null) {
+                    finished = true;
                     throw new JsonSourceException("Input ended inside the records array at " + location(), null);
                 }
                 long element = position++;

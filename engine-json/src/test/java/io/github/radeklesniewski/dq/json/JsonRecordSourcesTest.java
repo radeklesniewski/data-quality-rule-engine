@@ -95,6 +95,35 @@ class JsonRecordSourcesTest {
         }
 
         @Test
+        void contentAfterTheArrayIsReportedNotSilentlyDropped() {
+            for (String trailing : new String[] {" [{\"id\": \"b\"}]", " garbage", " {\"id\": \"b\"}"}) {
+                RecordSource source = JsonRecordSources.array(stream("[{\"id\": \"a\"}]" + trailing));
+
+                assertThat(next(source).get("id")).as("records of the array are still delivered").contains("a");
+                assertThatThrownBy(source::next)
+                        .as("trailing: %s", trailing)
+                        .isInstanceOf(JsonSourceException.class);
+                assertThat(source.next()).isEmpty();
+            }
+        }
+
+        @Test
+        void whitespaceAfterTheArrayIsFine() {
+            RecordSource source = JsonRecordSources.array(stream("[{\"id\": \"a\"}]  \n\t "));
+
+            assertThat(next(source).get("id")).contains("a");
+            assertThat(source.next()).isEmpty();
+        }
+
+        @Test
+        void rootThatIsNotAnArrayFailsOnlyOnce() {
+            RecordSource source = JsonRecordSources.array(stream("{\"id\": \"r1\"}"));
+
+            assertThatThrownBy(source::next).isInstanceOf(JsonSourceException.class);
+            assertThat(source.next()).isEmpty();
+        }
+
+        @Test
         void truncatedInputAbortsTheRun() {
             RecordSource source = JsonRecordSources.array(stream("[ {\"id\": \"r1\"}, "));
 
