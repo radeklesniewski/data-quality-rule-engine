@@ -11,9 +11,11 @@ different country than the record, the engine could either skip it silently or e
 ## Decision
 - **Default:** a rule whose country scope doesn't match the record's country is **not executed and produces no Result**.
   `NOT_APPLICABLE` is only ever a decision *computed* by a rule's own mapping (e.g. `countryBlocked` → default).
-- **Opt-in:** a `RunOptions` setting (working name `emitOutOfScope`) makes the engine emit a `Result` with decision
-  `NOT_APPLICABLE` for skipped rules. Its provenance is explicitly marked *out of scope* (no computed value, no fields read)
-  and the rule logic still isn't executed. This is for hosts that need full rule × record coverage in their output.
+- **Opt-in:** `RunOptions.emitOutOfScope(true)` makes the engine emit a `Result` with decision `NOT_APPLICABLE` for
+  skipped rules. Its provenance has `basis = OUT_OF_SCOPE`, no computed value, and the record's country field as the
+  only field read, which is exactly what explains the skip. The rule logic still isn't executed. This is for hosts
+  that need full rule × record coverage in their output. Rules removed by the caller's filter (ADR-0009) produce
+  nothing, even with this option on.
 - If a record has no country, it matches only WORLD-scoped rules. Country-scoped rules are skipped as above.
 
 ## Consequences

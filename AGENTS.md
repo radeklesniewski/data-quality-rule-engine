@@ -41,7 +41,7 @@ Packages in `engine-core`:
   reads), field exceptions, `RecordReadException`.
 - `io.github.radeklesniewski.dq.rule` — rule model: `Rule`, `RuleLogic`, `DecisionMapping`, `CountryScope`,
   `RuleCatalog` (SPI), metadata enums.
-- `io.github.radeklesniewski.dq.select` — composable rule filters.
+- `io.github.radeklesniewski.dq.select` — `RuleFilter`: composable rule selection (status, country, category, custom).
 - `io.github.radeklesniewski.dq.internal` — implementation. **Not API**: `module-info.java` does not export it.
 
 ## Commands

@@ -31,9 +31,11 @@ Priority order follows the brief: **core done well before extended features**.
   field, record without an id, unreadable record).
 
 ## M3 — Selection (F6)
-- ☐ Composable `RuleFilter` (and/or/not): status, country scope, category.
-- ◐ Country scope applied per record (ADR-0007) ☑ (done in M2) + `emitOutOfScope` option ☐.
-- ◐ Engine enforces RELEASED-only ☑ (done in M2). Test that it still holds when caller filters select DRAFT ☐. Tests for every filter and their combinations.
+- ☑ Composable `RuleFilter` (and/or/negate, allOf/anyOf): status, country, category, custom (ADR-0009).
+- ☑ Country scope applied per record (ADR-0007) + `emitOutOfScope` option (`Provenance.Basis.OUT_OF_SCOPE`).
+- ☑ Engine enforces RELEASED-only after the caller's filter. Tested with filters that select DRAFT, every status,
+  and negations.
+- ☑ Tests for every filter and combination (`RuleFilterTest`, `RuleSelectionEngineTest`). `RunSummary.rulesSelected`.
 
 ## M4 — Scale (F5)
 - ☑ Configurable batch size in `RunOptions`. Lazy input (`RecordSource`). No result accumulation (done in M2).
