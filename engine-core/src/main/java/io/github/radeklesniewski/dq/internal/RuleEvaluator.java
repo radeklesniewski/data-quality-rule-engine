@@ -39,7 +39,7 @@ public final class RuleEvaluator {
                     "Logic of rule '" + rule.id() + "' returned null; rule logic must return a non-null value");
         }
         DecisionMapping mapping = rule.decisionMapping();
-        Provenance provenance = new Provenance(
+        Provenance provenance = Provenance.evaluated(
                 rule.id(), recordId, recordIndex, view.reads(), value, !mapping.isMapped(value));
         return new Result(mapping.decide(value), rule.severity(), provenance);
     }

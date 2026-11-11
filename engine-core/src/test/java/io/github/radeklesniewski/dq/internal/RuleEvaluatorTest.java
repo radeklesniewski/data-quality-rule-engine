@@ -63,7 +63,7 @@ class RuleEvaluatorTest {
         assertThat(result.ruleId()).isEqualTo("vatFormat");
         assertThat(result.recordId()).isEqualTo("r3");
         assertThat(result.provenance().fieldsRead()).containsExactly(FieldRead.absent("vatId"));
-        assertThat(result.provenance().computedValue()).isEqualTo("bad");
+        assertThat(result.provenance().computedValue()).contains("bad");
         assertThat(result.provenance().defaultDecision()).isFalse();
     }
 
@@ -83,7 +83,7 @@ class RuleEvaluatorTest {
 
         assertThat(result.decision()).isEqualTo(REVIEW);
         assertThat(result.provenance().defaultDecision()).isTrue();
-        assertThat(result.provenance().computedValue()).isEqualTo("unexpected");
+        assertThat(result.provenance().computedValue()).contains("unexpected");
     }
 
     @Test

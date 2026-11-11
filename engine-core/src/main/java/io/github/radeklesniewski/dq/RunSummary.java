@@ -10,15 +10,17 @@ import java.util.Objects;
 /**
  * Totals for one validation run (F4), computed incrementally from counters. Results are never retained.
  *
+ * @param rulesSelected rules that took part: RELEASED and selected by the run's filter. 0 means nothing could run
  * @param recordsRead records taken from the source, including unreadable ones
  * @param batches batches processed
- * @param resultCount results emitted
+ * @param resultCount results emitted (including out-of-scope {@code NOT_APPLICABLE} results, if enabled)
  * @param ruleErrorCount rule errors emitted
  * @param recordErrorCount record errors emitted
  * @param resultsByDecision result count per decision; every decision is present, possibly with 0
  * @param resultsBySeverity result count per severity; every severity is present, possibly with 0
  */
 public record RunSummary(
+        int rulesSelected,
         long recordsRead,
         long batches,
         long resultCount,

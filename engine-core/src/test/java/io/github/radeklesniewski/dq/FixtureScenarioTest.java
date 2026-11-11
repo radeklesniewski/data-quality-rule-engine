@@ -67,7 +67,7 @@ class FixtureScenarioTest {
         assertThat(r2Vat.severity()).isEqualTo(Severity.ERROR);
         assertThat(r2Vat.recordIndex()).isEqualTo(1);
         assertThat(r2Vat.provenance().fieldsRead()).containsExactly(FieldRead.present("vatId", "FR22"));
-        assertThat(r2Vat.provenance().computedValue()).isEqualTo("bad");
+        assertThat(r2Vat.provenance().computedValue()).contains("bad");
     }
 
     /**

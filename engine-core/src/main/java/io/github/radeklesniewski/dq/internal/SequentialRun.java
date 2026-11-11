@@ -1,14 +1,18 @@
 package io.github.radeklesniewski.dq.internal;
 
+import io.github.radeklesniewski.dq.FieldRead;
 import io.github.radeklesniewski.dq.Outcome;
 import io.github.radeklesniewski.dq.OutcomeSink;
+import io.github.radeklesniewski.dq.Provenance;
 import io.github.radeklesniewski.dq.RecordError;
+import io.github.radeklesniewski.dq.Result;
 import io.github.radeklesniewski.dq.RuleError;
 import io.github.radeklesniewski.dq.RunOptions;
 import io.github.radeklesniewski.dq.RunSummary;
 import io.github.radeklesniewski.dq.record.DataRecord;
 import io.github.radeklesniewski.dq.record.RecordReadException;
 import io.github.radeklesniewski.dq.record.RecordSource;
+import io.github.radeklesniewski.dq.rule.Decision;
 import io.github.radeklesniewski.dq.rule.Rule;
 import io.github.radeklesniewski.dq.rule.RuleCatalog;
 import java.util.ArrayList;
@@ -28,9 +32,10 @@ public final class SequentialRun {
 
     private final List<Rule> rules;
     private final int batchSize;
+    private final boolean emitOutOfScope;
     private final RecordKeys keys;
     private final OutcomeSink sink;
-    private final SummaryCounter summary = new SummaryCounter();
+    private final SummaryCounter summary;
 
     /**
      * Prepares a run. Snapshots and validates the catalog, so configuration errors surface before any record is read.
@@ -42,8 +47,10 @@ public final class SequentialRun {
      * @throws IllegalArgumentException if the catalog is invalid
      */
     public SequentialRun(RuleCatalog catalog, RunOptions options, RecordKeys keys, OutcomeSink sink) {
-        this.rules = RuleSelection.executable(catalog);
+        this.rules = RuleSelection.executable(catalog, options.ruleFilter());
         this.batchSize = options.batchSize();
+        this.emitOutOfScope = options.emitOutOfScope();
+        this.summary = new SummaryCounter(rules.size());
         this.keys = Objects.requireNonNull(keys, "keys");
         this.sink = Objects.requireNonNull(sink, "sink");
     }
@@ -106,8 +113,17 @@ public final class SequentialRun {
         for (Rule rule : rules) {
             if (rule.countryScope().appliesTo(country)) {
                 emit(evaluateIsolated(rule, record, id, index));
+            } else if (emitOutOfScope) {
+                emit(outOfScope(rule, id, index, country));
             }
         }
+    }
+
+    /** A NOT_APPLICABLE result for a rule skipped by country scope (ADR-0007). The rule's logic doesn't run. */
+    private Result outOfScope(Rule rule, String id, long index, Optional<String> country) {
+        FieldRead countryRead = new FieldRead(keys.countryField(), country.map(Object.class::cast));
+        return new Result(Decision.NOT_APPLICABLE, rule.severity(),
+                Provenance.outOfScope(rule.id(), id, index, countryRead));
     }
 
     /**

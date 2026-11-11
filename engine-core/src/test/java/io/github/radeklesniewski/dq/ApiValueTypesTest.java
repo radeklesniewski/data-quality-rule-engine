@@ -5,6 +5,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.github.radeklesniewski.dq.rule.Decision;
 import io.github.radeklesniewski.dq.rule.Severity;
+import io.github.radeklesniewski.dq.select.RuleFilter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -15,7 +16,7 @@ class ApiValueTypesTest {
 
     private static Result result() {
         return new Result(Decision.VALID, Severity.INFO,
-                new Provenance("rule", "rec", 0, List.of(), "ok", false));
+                Provenance.evaluated("rule", "rec", 0, List.of(), "ok", false));
     }
 
     @Test
@@ -28,7 +29,7 @@ class ApiValueTypesTest {
 
     @Test
     void summaryFillsMissingKeysWithZeroAndIsImmutable() {
-        RunSummary summary = new RunSummary(1, 1, 1, 2, 3, Map.of(Decision.VALID, 1L), Map.of());
+        RunSummary summary = new RunSummary(2, 1, 1, 1, 2, 3, Map.of(Decision.VALID, 1L), Map.of());
 
         assertThat(summary.count(Decision.REVIEW)).isZero();
         assertThat(summary.count(Severity.ERROR)).isZero();
@@ -67,7 +68,36 @@ class ApiValueTypesTest {
 
     @Test
     void provenanceRejectsNegativeIndex() {
-        assertThatThrownBy(() -> new Provenance("r", "x", -1, List.of(), "v", false))
+        assertThatThrownBy(() -> Provenance.evaluated("r", "x", -1, List.of(), "v", false))
                 .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void provenanceKeepsBasisAndComputedValueConsistent() {
+        assertThatThrownBy(() -> new Provenance("r", "x", 0, Provenance.Basis.OUT_OF_SCOPE, List.of(),
+                Optional.of("v"), false)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new Provenance("r", "x", 0, Provenance.Basis.EVALUATED, List.of(),
+                Optional.empty(), false)).isInstanceOf(IllegalArgumentException.class);
+        assertThatThrownBy(() -> new Provenance("r", "x", 0, Provenance.Basis.OUT_OF_SCOPE, List.of(),
+                Optional.empty(), true)).isInstanceOf(IllegalArgumentException.class);
+
+        Provenance outOfScope = Provenance.outOfScope("r", "x", 0, FieldRead.present("country", "FR"));
+        assertThat(outOfScope.computedValue()).isEmpty();
+        assertThat(outOfScope.fieldsRead()).containsExactly(FieldRead.present("country", "FR"));
+    }
+
+    @Test
+    void runOptionsCarryFilterAndOutOfScopeFlag() {
+        RunOptions options = RunOptions.builder()
+                .ruleFilter(RuleFilter.category("tax"))
+                .emitOutOfScope(true)
+                .build();
+
+        assertThat(RunOptions.defaults().ruleFilter()).isEqualTo(RuleFilter.all());
+        assertThat(RunOptions.defaults().emitOutOfScope()).isFalse();
+        assertThat(options.toBuilder().build()).isEqualTo(options).hasSameHashCodeAs(options);
+        assertThat(options).hasToString(
+                "RunOptions[batchSize=1000, ruleFilter=category any of [tax], emitOutOfScope=true]");
+        assertThatThrownBy(() -> RunOptions.builder().ruleFilter(null)).isInstanceOf(NullPointerException.class);
     }
 }

@@ -13,12 +13,17 @@ import java.util.Map;
 /** Mutable run counters. Constant memory, independent of input size. Not thread-safe. Internal. */
 final class SummaryCounter {
 
+    private final int rulesSelected;
     private long recordsRead;
     private long batches;
     private long ruleErrors;
     private long recordErrors;
     private final long[] byDecision = new long[Decision.values().length];
     private final long[] bySeverity = new long[Severity.values().length];
+
+    SummaryCounter(int rulesSelected) {
+        this.rulesSelected = rulesSelected;
+    }
 
     void recordRead() {
         recordsRead++;
@@ -50,6 +55,7 @@ final class SummaryCounter {
         for (Severity severity : Severity.values()) {
             severities.put(severity, bySeverity[severity.ordinal()]);
         }
-        return new RunSummary(recordsRead, batches, results, ruleErrors, recordErrors, decisions, severities);
+        return new RunSummary(
+                rulesSelected, recordsRead, batches, results, ruleErrors, recordErrors, decisions, severities);
     }
 }
