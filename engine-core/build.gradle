@@ -1,0 +1,6 @@
+// The library. Invariant: ZERO runtime dependencies (see AGENTS.md, ADR-0002).
+plugins {
+    id 'dq.library-conventions'
+}
+
+description = 'Data-quality rule engine: core model, engine and host SPI'

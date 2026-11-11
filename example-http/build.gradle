@@ -1,0 +1,16 @@
+// Example host: JDK HttpServer exposing POST /validate (ADR-0003). Not a dependency of any library module.
+plugins {
+    id 'dq.java-conventions'
+    id 'application'
+}
+
+description = 'Data-quality rule engine: example HTTP API'
+
+dependencies {
+    implementation project(':engine-core')
+    implementation project(':engine-json')
+}
+
+application {
+    mainClass = 'io.github.radeklesniewski.dq.example.http.ExampleHttpServer'
+}

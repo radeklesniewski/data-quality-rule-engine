@@ -1,0 +1,52 @@
+// Shared conventions for every Java module: toolchain, compiler flags, tests, coverage.
+plugins {
+    id 'java'
+    id 'jacoco'
+}
+
+def libs = versionCatalogs.named('libs')
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(libs.findVersion('java').get().requiredVersion)
+    }
+    withSourcesJar()
+    withJavadocJar()
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+    options.compilerArgs += ['-Xlint:all', '-parameters']
+}
+
+tasks.withType(Javadoc).configureEach {
+    options.encoding = 'UTF-8'
+    (options as StandardJavadocDocletOptions).addBooleanOption('Xdoclint:all,-missing', true)
+}
+
+dependencies {
+    testImplementation platform(libs.findLibrary('junit-bom').get())
+    testImplementation libs.findLibrary('junit-jupiter').get()
+    testImplementation libs.findLibrary('assertj-core').get()
+    testRuntimeOnly libs.findLibrary('junit-platform-launcher').get()
+}
+
+tasks.named('test', Test) {
+    useJUnitPlatform()
+    testLogging {
+        events 'failed', 'skipped'
+        exceptionFormat = 'full'
+    }
+    finalizedBy tasks.named('jacocoTestReport')
+}
+
+jacoco {
+    toolVersion = libs.findVersion('jacoco').get().requiredVersion
+}
+
+tasks.named('jacocoTestReport', JacocoReport) {
+    reports {
+        xml.required = true
+        html.required = true
+    }
+}

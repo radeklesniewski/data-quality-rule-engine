@@ -1,0 +1,14 @@
+// Conventions for published library modules (engine-core, engine-json).
+plugins {
+    id 'dq.java-conventions'
+    id 'java-library'
+}
+
+tasks.named('jar', Jar) {
+    manifest {
+        attributes(
+            'Implementation-Title': project.name,
+            'Implementation-Version': project.version
+        )
+    }
+}

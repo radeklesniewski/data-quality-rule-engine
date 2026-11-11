@@ -1,0 +1,15 @@
+plugins {
+    // Auto-provisions the Java toolchain (ADR-0001) when the required JDK is not installed locally.
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+}
+
+rootProject.name = 'data-quality-rule-engine'
+
+dependencyResolutionManagement {
+    repositoriesMode = RepositoriesMode.FAIL_ON_PROJECT_REPOS
+    repositories {
+        mavenCentral()
+    }
+}
+
+include 'engine-core', 'engine-json', 'example-http'

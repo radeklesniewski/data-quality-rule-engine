@@ -1,0 +1,6 @@
+// Root project: aggregation only. Shared configuration lives in the convention plugins in buildSrc/.
+plugins {
+    id 'base'
+}
+
+description = 'Data-Quality Rule Engine: reusable Java library for validating business-partner records'
