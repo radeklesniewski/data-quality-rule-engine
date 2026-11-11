@@ -39,11 +39,13 @@ Priority order follows the brief: **core done well before extended features**.
 
 ## M4 — Scale (F5)
 - ☑ Configurable batch size in `RunOptions`. Lazy input (`RecordSource`). No result accumulation (done in M2).
-- ☐ Cancellation between batches (thread interrupt) and optionally per-rule timeouts (ADR-0005 open points).
-- ☐ `memoryTest` Gradle task: 1M generated records under `-Xmx64m`.
-- ☐ JMH benchmark: throughput per rule count and batch size.
-- ☐ Execution modes per ADR-0006: `SEQUENTIAL` (default), then `PARALLEL_ORDERED` / `PARALLEL_UNORDERED`
-  with `parallelism` + `maxInFlightBatches`. Test that summary counts are identical across modes.
+- ☑ Cancellation via thread interrupt → `RunCancelledException` with a partial summary. Per-rule timeouts are
+  deliberately deferred (ADR-0005).
+- ☑ `memoryTest` Gradle task: 1M generated records, every mode, under `-Xmx64m` (docs/BENCHMARKS.md).
+- ☑ JMH benchmark (`:engine-core:jmh`): mode × catalog (3 vs 30 rules) × batch size (docs/BENCHMARKS.md).
+- ☑ Execution modes per ADR-0006 with `parallelism` + `maxInFlightBatches`. `ExecutionModeTest` covers equivalence,
+  single-threaded sink, real overlap, no thread leaks, fatal errors and cancellation.
+- ☐ (Next) Host-supplied `Executor`; reduce per-outcome allocation (benchmarks show the parallel path is GC-bound).
 
 ## M5 — JSON adapters (`engine-json`)
 - ☐ Streaming JSON array reader → `DataRecord` iterator (Jackson `JsonParser`, no full-tree load of the batch).

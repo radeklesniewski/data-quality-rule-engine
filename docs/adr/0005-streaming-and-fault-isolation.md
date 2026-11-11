@@ -47,4 +47,7 @@ rather than construct them.
 - Hosts that want a list must opt in explicitly (`CollectingSink`), so the accumulation is visible.
 - Record ids aren't checked for uniqueness: that would need memory proportional to input. Hosts that care can
   dedupe upstream.
-- Open: per-rule timeouts (a rule that hangs blocks the run), and cancellation between batches. Both are candidates for M4.
+- Cancellation (thread interrupt, checked between batches → `RunCancelledException` with a partial summary) was
+  added in M4. See ADR-0006.
+- Open: per-rule timeouts. A rule that hangs blocks the run. Timing out arbitrary code needs a separate thread
+  per evaluation, or cooperative checks, and that cost wasn't justified in this time-box.

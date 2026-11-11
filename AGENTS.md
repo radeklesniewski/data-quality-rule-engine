@@ -51,8 +51,8 @@ Packages in `engine-core`:
 ./gradlew test                        # unit tests
 ./gradlew :engine-core:test --tests '*FixtureScenarioTest'   # a single test class
 ./gradlew jacocoTestReport            # coverage → */build/reports/jacoco/
-./gradlew :engine-core:memoryTest     # [from M4] 1M records streamed under a small -Xmx (slow, not part of `test`)
-./gradlew :engine-core:jmh            # [from M4] JMH benchmarks (slow)
+./gradlew :engine-core:memoryTest     # 1M records, every execution mode, under -Xmx64m (tag 'memory', not part of `test`)
+./gradlew :engine-core:jmh            # JMH throughput benchmarks, ~2 min (see docs/BENCHMARKS.md)
 ./gradlew :example-http:run           # [from M6] start the demo API (port 8080)
 ```
 
@@ -117,8 +117,10 @@ one failing rule or record and asserts that the rest of the batch completes and 
 
 - JUnit 5 + AssertJ. Test names describe behaviour: `releasedOnlyEvenWhenCallerSelectsDraft()`.
 - Unit-test each invariant above directly. Use the fixture as the end-to-end acceptance test.
-- The 1M-record test generates records lazily (never in a list) and runs in a separate Gradle task with a
-  small heap (e.g. `-Xmx64m`). It asserts that the run completes and the summary counts are correct.
+- The 1M-record test (`BoundedMemoryTest`, `@Tag("memory")`) generates records lazily (never in a list) and runs
+  only in the `memoryTest` task with `-Xmx64m`. Tag other slow tests and keep them out of `test`.
+- Concurrency tests must be deterministic: prove overlap with barriers, not timing. Check for leaked
+  `dq-engine-run*` threads after parallel runs, and clear the interrupt flag after cancellation tests.
 - Don't mock what you own. Use real small rules and in-memory sinks.
 
 ## Git workflow
