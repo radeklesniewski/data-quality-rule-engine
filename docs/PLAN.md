@@ -12,11 +12,14 @@ Priority order follows the brief: **core done well before extended features**.
   (javac rejects exporting a package that only has `package-info.java`).
 
 ## M1 — Core model (F1, F2)
-- ☐ Enums `Decision`, `Severity`, `RuleStatus`. Value types `CountryScope`, `Category`.
-- ☐ `DecisionMapping` (value → Decision, mandatory default). Pure data, with tests.
-- ☐ Record abstraction `DataRecord` (id, country, field access by path) + tracking accessor for provenance.
-- ☐ `Rule` (id, label, logic, mapping, metadata) + `RuleLogic` functional interface returning a value.
-- ☐ `Result` with `Provenance` (ruleId, recordId, fields/values read, computed value).
+- ☑ Enums `Decision`, `Severity`, `RuleStatus`. Sealed `CountryScope` (World | Country). Categories are plain strings.
+- ☑ `DecisionMapping` (value → Decision, mandatory default via `builder()…orElse(…)`). Pure data, with tests.
+- ☑ `DataRecord` SPI + `RecordView` for logic + internal `TrackingRecordView` for provenance (ADR-0008).
+  Record id/country extraction is the engine's job (M2), via configurable field names.
+- ☑ `Rule` (+ builder, defaults to DRAFT) + `RuleLogic` returning a `String` value.
+- ☑ `Result` with `Provenance` (ruleId, recordId, fields/values read, computed value, default-applied flag).
+- ☑ Internal `RuleEvaluator` (no isolation yet) + fixture decision table at evaluator level (`RuleEvaluatorTest`).
+- ☑ `module-info` exports `dq`, `dq.record`, `dq.rule`. `dq.select` follows in M3.
 
 ## M2 — Engine + fault isolation (F1, F3, F4)
 - ☐ `ValidationEngine` with streaming API: records in → sink out (results + errors). Returns `RunSummary`.
@@ -54,4 +57,7 @@ Priority order follows the brief: **core done well before extended features**.
 - ☑ Record id missing → record-level error, rule evaluations skipped (confirmed by user).
 - ☑ Parallel vs ordered → ADR-0006 (confirmed by user).
 - ☑ Country scope mismatch → rule skipped, no Result by default. Opt-in `emitOutOfScope` (ADR-0007, confirmed by user).
+- ☑ The brief gives `vatFormat` / `ibanFormat` no default decision. Fixtures use `REVIEW` (an unexpected value goes to a human).
+  The brief gives no severities, so fixtures use `ERROR`.
+- ☑ JSON `null` = absent field; empty string = present (ADR-0008).
 - ☑ `REQUIREMENTS.md` stays local (git-ignored). Don't commit it or quote it verbatim in committed files.

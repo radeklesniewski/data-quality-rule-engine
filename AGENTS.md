@@ -35,8 +35,9 @@ example-http/   # Demo host: JDK HttpServer exposing POST /validate. Depends on 
 ```
 
 Packages in `engine-core`:
-- `io.github.radeklesniewski.dq` — public API (engine, run options, results, summary, SPI interfaces).
-- `io.github.radeklesniewski.dq.rule` — rule model: `Rule`, `DecisionMapping`, metadata enums.
+- `io.github.radeklesniewski.dq` — public API (engine, run options, `Result`/`Provenance`/`FieldRead`, summary).
+- `io.github.radeklesniewski.dq.record` — `DataRecord` (host SPI), `RecordView` (what rule logic reads), field exceptions.
+- `io.github.radeklesniewski.dq.rule` — rule model: `Rule`, `RuleLogic`, `DecisionMapping`, `CountryScope`, metadata enums.
 - `io.github.radeklesniewski.dq.select` — composable rule filters.
 - `io.github.radeklesniewski.dq.internal` — implementation. **Not API**: `module-info.java` does not export it.
 
@@ -84,7 +85,9 @@ hard-code versions in module build files. Configuration cache and build cache ar
 
 - Small public surface. Prefer `record`s and sealed interfaces. Everything else is package-private or `internal`.
 - Immutable value types. Defensive copies (`List.copyOf`, `Map.copyOf`). Validate in compact constructors.
-- Explicit null contract: no nulls in the API. Use `Optional` only for return values. Use `Objects.requireNonNull` with a message.
+- Explicit null contract: no nulls in the API. Use `Optional` for return values and for record components that
+  model absence (e.g. `FieldRead.value`), never for parameters.
+- Exception messages name paths, ids and types but **never field values** (PII). Values belong only in provenance. Use `Objects.requireNonNull` with a message.
 - Document thread safety in Javadoc. The engine instance is thread-safe and reusable, and a run is single-use.
 - Javadoc on every public type and method, stating the contract rather than the implementation.
 - Deterministic output order for a sequential run (record order, then catalog order).
