@@ -1,6 +1,39 @@
 // The library. Invariant: ZERO runtime dependencies (see AGENTS.md, ADR-0002).
 plugins {
     id 'dq.library-conventions'
+    alias(libs.plugins.jmh)
 }
 
 description = 'Data-quality rule engine: core model, engine and host SPI'
+
+// Slow or environment-sensitive tests are tagged and run by dedicated tasks, not by `test`.
+tasks.named('test', Test) {
+    useJUnitPlatform {
+        excludeTags 'memory'
+    }
+}
+
+// F5 evidence: 1M records through every execution mode under a 64 MB heap.
+def memoryTest = tasks.register('memoryTest', Test) {
+    description = 'Streams 1,000,000 records under a 64 MB heap to prove bounded memory (F5).'
+    group = 'verification'
+    testClassesDirs = sourceSets.test.output.classesDirs
+    classpath = sourceSets.test.runtimeClasspath
+    useJUnitPlatform {
+        includeTags 'memory'
+    }
+    maxHeapSize = '64m'
+    testLogging {
+        showStandardStreams = true
+        events 'passed', 'failed'
+    }
+    shouldRunAfter tasks.named('test')
+}
+
+jmh {
+    jmhVersion = libs.versions.jmh.get()
+    warmupIterations = 2
+    iterations = 3
+    fork = 1
+    resultFormat = 'JSON'
+}

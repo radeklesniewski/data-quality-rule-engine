@@ -5,7 +5,7 @@ assertj = "3.27.7"
 jackson = "3.3.0"
 jacoco = "0.8.16"
 jmh = "1.37"
-jmh-plugin = "0.7.4"
+champeau-jmh = "0.7.4"
 
 [libraries]
 junit-bom = { module = "org.junit:junit-bom", version.ref = "junit" }
@@ -17,4 +17,4 @@ jackson-core = { module = "tools.jackson.core:jackson-core" }
 jackson-databind = { module = "tools.jackson.core:jackson-databind" }
 
 [plugins]
-jmh = { id = "me.champeau.jmh", version.ref = "jmh-plugin" }
+jmh = { id = "me.champeau.jmh", version.ref = "champeau-jmh" }
