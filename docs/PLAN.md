@@ -22,18 +22,22 @@ Priority order follows the brief: **core done well before extended features**.
 - ☑ `module-info` exports `dq`, `dq.record`, `dq.rule`. `dq.select` follows in M3.
 
 ## M2 — Engine + fault isolation (F1, F3, F4)
-- ☐ `ValidationEngine` with streaming API: records in → sink out (results + errors). Returns `RunSummary`.
-- ☐ Per-(rule × record) isolation → `RuleError`. Bad-record handling (e.g. a record without an id).
-- ☐ `RunSummary`: counts of results/errors, by decision, by severity.
-- ☐ `FixtureScenarioTest` (REQUIREMENTS §5) + fault-isolation variant.
+- ☑ `ValidationEngine.run(RecordSource, RuleCatalog, RunOptions, OutcomeSink) → RunSummary`. Sealed
+  `Outcome = Result | RuleError | RecordError`. `RuleCatalog` SPI with a once-per-run snapshot and duplicate-id check.
+- ☑ Per-(rule × record) isolation → `RuleError`. Unreadable or unidentifiable records → `RecordError` (ADR-0005).
+- ☑ `RunSummary`: records read, batches, results, rule and record errors, by decision, by severity.
+- ☑ RELEASED-only and per-record country scope enforced by the engine (caller filters follow in M3).
+- ☑ `FixtureScenarioTest`: decision table, summary, and a fault-isolation variant (throwing rule, wrongly typed
+  field, record without an id, unreadable record).
 
 ## M3 — Selection (F6)
 - ☐ Composable `RuleFilter` (and/or/not): status, country scope, category.
-- ☐ Country scope applied per record (ADR-0007) + `emitOutOfScope` option.
-- ☐ Engine enforces RELEASED-only regardless of filters. Tests for every filter and their combinations.
+- ◐ Country scope applied per record (ADR-0007) ☑ (done in M2) + `emitOutOfScope` option ☐.
+- ◐ Engine enforces RELEASED-only ☑ (done in M2). Test that it still holds when caller filters select DRAFT ☐. Tests for every filter and their combinations.
 
 ## M4 — Scale (F5)
-- ☐ Configurable batch size in `RunOptions`. Lazy input (`Iterator`/`Stream`). No result accumulation.
+- ☑ Configurable batch size in `RunOptions`. Lazy input (`RecordSource`). No result accumulation (done in M2).
+- ☐ Cancellation between batches (thread interrupt) and optionally per-rule timeouts (ADR-0005 open points).
 - ☐ `memoryTest` Gradle task: 1M generated records under `-Xmx64m`.
 - ☐ JMH benchmark: throughput per rule count and batch size.
 - ☐ Execution modes per ADR-0006: `SEQUENTIAL` (default), then `PARALLEL_ORDERED` / `PARALLEL_UNORDERED`
@@ -60,4 +64,7 @@ Priority order follows the brief: **core done well before extended features**.
 - ☑ The brief gives `vatFormat` / `ibanFormat` no default decision. Fixtures use `REVIEW` (an unexpected value goes to a human).
   The brief gives no severities, so fixtures use `ERROR`.
 - ☑ JSON `null` = absent field; empty string = present (ADR-0008).
+- ☑ Record id: a non-blank string or a number. Configurable field (default `id`). Uniqueness isn't checked (would
+  need unbounded memory). A non-string country → `RecordError`.
+- ☑ The engine doesn't close the `RecordSource`; whoever opens it closes it.
 - ☑ `REQUIREMENTS.md` stays local (git-ignored). Don't commit it or quote it verbatim in committed files.

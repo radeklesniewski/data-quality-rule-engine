@@ -35,9 +35,12 @@ example-http/   # Demo host: JDK HttpServer exposing POST /validate. Depends on 
 ```
 
 Packages in `engine-core`:
-- `io.github.radeklesniewski.dq` — public API (engine, run options, `Result`/`Provenance`/`FieldRead`, summary).
-- `io.github.radeklesniewski.dq.record` — `DataRecord` (host SPI), `RecordView` (what rule logic reads), field exceptions.
-- `io.github.radeklesniewski.dq.rule` — rule model: `Rule`, `RuleLogic`, `DecisionMapping`, `CountryScope`, metadata enums.
+- `io.github.radeklesniewski.dq` — public API: `ValidationEngine`, `RunOptions`, `RunSummary`, `OutcomeSink`,
+  sealed `Outcome` (`Result` | `RuleError` | `RecordError`), `Provenance`, `FieldRead`, `CollectingSink`.
+- `io.github.radeklesniewski.dq.record` — `DataRecord` and `RecordSource` (host SPIs), `RecordView` (what rule logic
+  reads), field exceptions, `RecordReadException`.
+- `io.github.radeklesniewski.dq.rule` — rule model: `Rule`, `RuleLogic`, `DecisionMapping`, `CountryScope`,
+  `RuleCatalog` (SPI), metadata enums.
 - `io.github.radeklesniewski.dq.select` — composable rule filters.
 - `io.github.radeklesniewski.dq.internal` — implementation. **Not API**: `module-info.java` does not export it.
 
