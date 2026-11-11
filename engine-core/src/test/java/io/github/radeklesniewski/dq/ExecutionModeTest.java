@@ -254,6 +254,42 @@ class ExecutionModeTest {
         }
     }
 
+    // ---------------------------------------------------------------- fatal source failure
+
+    @Nested
+    class SourceFailure {
+
+        /** Yields {@code good} records, then breaks for good (e.g. a syntax error in the input). */
+        private static RecordSource breaksAfter(int good) {
+            int[] next = {0};
+            return () -> {
+                int i = next[0]++;
+                if (i >= good) {
+                    throw new IllegalStateException("input broken at record " + i);
+                }
+                return Optional.of(DataRecord.ofMap(Map.of("id", "r" + i)));
+            };
+        }
+
+        @ParameterizedTest(name = "{0}, batchSize={1}")
+        @CsvSource({"SEQUENTIAL,1", "SEQUENTIAL,7", "SEQUENTIAL,1000",
+                "PARALLEL_ORDERED,7", "PARALLEL_ORDERED,1000", "PARALLEL_UNORDERED,7", "PARALLEL_UNORDERED,1000"})
+        void everythingReadBeforeTheBreakIsDeliveredThenTheRunFails(ExecutionMode mode, int batchSize)
+                throws InterruptedException {
+            List<Outcome> delivered = new ArrayList<>();
+            Rule ok = rule("ok", r -> "ok");
+
+            assertThatThrownBy(() -> engine.run(breaksAfter(50), RuleCatalog.of(ok), options(mode, 4, 4, batchSize),
+                    delivered::add))
+                    .isInstanceOf(IllegalStateException.class)
+                    .hasMessage("input broken at record 50");
+            assertThat(delivered).hasSize(50);
+            assertThat(delivered.stream().map(Outcome::recordIndex).sorted().toList())
+                    .isEqualTo(java.util.stream.LongStream.range(0, 50).boxed().toList());
+            assertNoWorkerThreadsLeft();
+        }
+    }
+
     // ---------------------------------------------------------------- cancellation
 
     @Nested

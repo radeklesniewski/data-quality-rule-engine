@@ -21,6 +21,7 @@ final class BatchReader {
     private final SummaryCounter summary;
     private long nextIndex;
     private boolean exhausted;
+    private RuntimeException deferredFailure;
 
     BatchReader(RecordSource source, int batchSize, SummaryCounter summary) {
         this.source = Objects.requireNonNull(source, "source");
@@ -31,9 +32,20 @@ final class BatchReader {
     /**
      * Reads the next batch.
      *
+     * <p>If the source fails fatally (any exception other than {@link RecordReadException}) after some records of
+     * the batch were read, those records are returned first and the failure is thrown by the <em>next</em> call. So
+     * everything read before the break is still validated, whatever the batch size.
+     *
      * @return up to {@code batchSize} items, in input order; empty once the source is exhausted
+     * @throws RuntimeException the source's fatal failure, once all records read before it were returned
      */
     List<BatchItem> next() {
+        if (deferredFailure != null) {
+            RuntimeException failure = deferredFailure;
+            deferredFailure = null;
+            exhausted = true;
+            throw failure;
+        }
         if (exhausted) {
             return List.of();
         }
@@ -50,6 +62,13 @@ final class BatchReader {
                 item = new BatchItem.Readable(nextIndex, next.get());
             } catch (RecordReadException e) {
                 item = new BatchItem.Unreadable(nextIndex, e);
+            } catch (RuntimeException fatal) {
+                if (batch.isEmpty()) {
+                    exhausted = true;
+                    throw fatal;
+                }
+                deferredFailure = fatal;
+                break;
             }
             nextIndex++;
             summary.recordRead();

@@ -58,7 +58,16 @@ final class ParallelRun {
             Window window = ordered ? new OrderedWindow(pool) : new CompletionWindow(pool);
             while (true) {
                 emitter.throwIfCancelled();
-                List<BatchItem> batch = reader.next();
+                List<BatchItem> batch;
+                try {
+                    batch = reader.next();
+                } catch (RuntimeException sourceFailure) {
+                    // Like sequential mode: deliver everything read before the source broke, then fail.
+                    while (window.size() > 0) {
+                        emit(window.takeNext());
+                    }
+                    throw sourceFailure;
+                }
                 if (batch.isEmpty()) {
                     break;
                 }
