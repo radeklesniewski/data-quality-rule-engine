@@ -66,9 +66,12 @@ Priority order follows the brief: **core done well before extended features**.
 - ☑ `JsonOutcomeWriter.abort(reason)` for output that was already partly sent.
 
 ## M7 — Deliverables
-- ☐ `DESIGN.md`: public API, fault isolation, bounded memory, seams, trade-offs, next steps.
-- ☐ `README.md`: build, test, run instructions, example curl.
-- ☐ Final review of the commit history, plus `./gradlew build` green from a clean clone.
+- ☑ `DESIGN.md`: public API, rules and decisions, fault isolation, bounded memory, selection, seams, library
+  qualities, assumptions, trade-offs, next steps, and a requirement → evidence table.
+- ☑ `README.md`: requirements, build/test/benchmark commands, library usage, HTTP example with curl (verified against
+  a running server), sample requests in `example-http/samples/`.
+- ☑ Clean clone with an empty Gradle home: `./gradlew build :engine-core:memoryTest` passes (≈25 s).
+- ☐ Push to GitHub (needs a remote); optionally CI (GitHub Actions running `build` + `memoryTest`).
 
 ## Open questions / assumptions log
 - ☑ Record id missing → record-level error, rule evaluations skipped (confirmed by user).
