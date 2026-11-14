@@ -51,12 +51,7 @@ public record RecordKeys(String idField, String countryField) {
      * @throws FieldTypeException if present but not a string
      */
     public Optional<String> country(DataRecord record) {
-        return RecordFields.read(record, countryField).map(value -> {
-            if (value instanceof String s) {
-                return s;
-            }
-            throw new FieldTypeException(countryField, String.class, value.getClass());
-        });
+        return RecordFields.read(record, countryField).map(value -> RecordFields.as(countryField, value, String.class));
     }
 
     /** One rendering for every numeric type, via its decimal value; {@code Double.toString} would use exponents. */

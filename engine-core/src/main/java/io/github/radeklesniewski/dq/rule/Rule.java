@@ -6,7 +6,6 @@ import java.util.Collections;
 import java.util.LinkedHashSet;
 import java.util.Objects;
 import java.util.Set;
-import java.util.regex.Pattern;
 
 /**
  * A named data-quality check: {@link RuleLogic} computes a value from a record, and a {@link DecisionMapping}
@@ -34,15 +33,9 @@ public record Rule(
         CountryScope countryScope,
         Set<String> categories) {
 
-    private static final Pattern ID = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]*");
-
     /** Validates all components and defensively copies {@code categories}. */
     public Rule {
-        Objects.requireNonNull(id, "id");
-        if (!ID.matcher(id).matches()) {
-            throw new IllegalArgumentException(
-                    "Rule id must match " + ID.pattern() + " (letters, digits, '.', '_', '-'), got: '" + id + "'");
-        }
+        RuleIds.requireValid("Rule id", id);
         Objects.requireNonNull(label, () -> "label of rule '" + id + "'");
         if (label.isBlank()) {
             throw new IllegalArgumentException("Label of rule '" + id + "' must not be blank");

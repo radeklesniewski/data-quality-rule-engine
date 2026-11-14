@@ -96,8 +96,10 @@ Priority order follows the brief: **core done well before extended features**.
   `RunCancelledException` keeps its summary through serialization; numeric ids in plain notation; no `int` overflow
   sizing a parallel batch's outcomes; `toBuilder()` keeps derived parallel defaults derived; every record read goes
   through `RecordFields.read`, so `RecordView.of` enforces the `DataRecord` contract too.
-- ☐ Core review, next: step 2 `RecordFields.as` + `RuleIds`; step 3 `ParallelRun`/`BatchWindow`/`Cancellation` and
-  method-level refactors; step 4 visibility (`RuleEvaluator`, `TrackingRecordView` package-private).
+- ☑ Core review, step 2 (helpers): `RecordFields.as` is the one typed cast (`RecordView.getString`,
+  `RecordKeys.country`); `RuleIds` is the one id format for rule and logic ids (the registry's message now matches).
+- ☐ Core review, next: step 3 `ParallelRun`/`BatchWindow`/`Cancellation` and method-level refactors; step 4
+  visibility (`RuleEvaluator`, `TrackingRecordView` package-private).
 - ☐ JSON review, next (need a decision): package-private exception constructors; one name for the failure field in
   both writer layouts; strict duplicate-key detection for catalogs.
 

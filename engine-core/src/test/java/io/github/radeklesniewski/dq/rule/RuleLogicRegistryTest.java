@@ -39,4 +39,15 @@ class RuleLogicRegistryTest {
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> RuleLogicRegistry.of(nullLogic)).hasMessageContaining("'a'");
     }
+
+    @Test
+    void logicIdsFollowExactlyTheRuleIdFormat() {
+        assertThatThrownBy(() -> RuleLogicRegistry.of(Map.of("has space", ok)))
+                .hasMessage("Logic id must match [A-Za-z0-9][A-Za-z0-9._-]* (letters, digits, '.', '_', '-'),"
+                        + " got: 'has space'");
+        assertThatThrownBy(() -> Rule.builder("has space").label("x").logic(ok).severity(Severity.ERROR)
+                .decisionMapping(DecisionMapping.builder().orElse(Decision.VALID)).build())
+                .hasMessage("Rule id must match [A-Za-z0-9][A-Za-z0-9._-]* (letters, digits, '.', '_', '-'),"
+                        + " got: 'has space'");
+    }
 }
