@@ -80,6 +80,11 @@ Priority order follows the brief: **core done well before extended features**.
 - ☑ Docs match measured behaviour: parallel bound `(maxInFlightBatches + 1) × batchSize`, severity breakdown
   semantics, unbounded single-record size, Java 21 compatibility, build-cache caveat.
 - ☐ Known limitations and future work: DESIGN.md §10 and §11.
+- ☑ HTTP review: server-side failures before streaming (catalog unreadable or invalid, temp file not writable) are a
+  `500` on `/validate` and `/rules`, not a dropped connection; aborting a malformed-body response is quiet. Review
+  notes added to ADR-0003 (action endpoint, deadlock mechanism, temp-file safety, early `200`).
+- ☐ HTTP review, next: split `validate` into smaller steps; formats in `RunRequest`; `Accept` lists; exact path
+  matching; syntax pre-pass for a `400` on malformed JSON.
 
 ## Open questions / assumptions log
 - ☑ Record id missing → record-level error, rule evaluations skipped (confirmed by user).

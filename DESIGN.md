@@ -133,7 +133,8 @@ Other details:
   "results by severity". A host that wants "violations by severity" counts `INVALID`/`REVIEW` results in its sink.
 - **The HTTP example keeps the same property.** It copies the upload to a temporary file through a 64 KiB buffer,
   rejecting bodies over the limit with `413`. The engine then reads records lazily from that file, and the response
-  is streamed (ADR-0003).
+  is streamed (ADR-0003). Failures before streaming starts (an invalid or unreadable catalog, a temp file that
+  can't be written) are answered with `500` rather than mistaken for a client disconnect.
 
 ## 5. Rule selection (F6)
 
@@ -211,7 +212,9 @@ The brief left these open on purpose. What I did about each:
   writing the response. That deadlocked clients that upload everything before reading (reproduced with 200k
   records). Spooling works with every client and keeps memory bounded. It costs disk I/O and a later first byte.
   Because the 200 status is still sent before parsing, a body that turns out to be malformed produces `"error"` and
-  no `"summary"`. Parsing twice to get a proper 400 didn't seem worth it.
+  no `"summary"`. Since the body is already on disk, a cheap syntax-only pre-pass could turn that into a proper
+  `400`; it's the first thing I'd add (ADR-0003, review notes). The same notes cover temp-file safety and what a
+  production host would do instead.
 - **Rule logic is Java code referenced by id**, not an expression language. It's type-safe, testable and debuggable,
   but a new *kind* of check needs a deploy.
 - **Provenance tracking costs one small object per (rule, record)**, which the benchmarks include. I judged explanations
@@ -265,3 +268,20 @@ medium (M) changes, listed in the order I'd do them.
 | F5 1M records, bounded memory, configurable batches | `BatchReader`, `OutcomeSink`, `ParallelRun` | `BoundedMemoryTest` (`memoryTest`), `ValidationEngineTest$Streaming`, `EngineBenchmark` |
 | F6 composable filters, RELEASED only | `RuleFilter`, `RuleSelection` | `RuleFilterTest`, `RuleSelectionEngineTest` |
 | Example HTTP API | `ExampleHttpServer` | `ExampleHttpServerTest` (incl. `halfDuplexClientWithALargeBodyGetsTheCompleteResponse`, `contentAfterTheArrayIsReportedNotSilentlyDropped`, `bodyOverTheLimitIsRejectedBeforeValidation`) |
+
+
+My notes:
+
+- **What the early `200` means for clients.** HTTP/1.1 sends the status and headers before the body, and they can't
+  be changed afterwards. With a streamed (chunked) response, `200` means "accepted, processing started". A client with
+  a streaming body handler (`ofInputStream`, `ofLines`, `HttpURLConnection.getInputStream()`) sees the status at once;
+  `ofString` returns after the whole body. Either way `statusCode()` is `200` even if the body ends with `"error"`. The
+  other ways to signal a late failure are a broken chunked stream (clients get an exception but no detail) and HTTP
+  trailers (not supported by the JDK server, ignored by most clients), so the in-band marker stays.
+  **To revisit:** the reason given above for not returning `400`, "parsing everything twice", is weaker than it looks.
+  The body is already on disk, and a syntax-only pass (Jackson `skipChildren()`, O(1) memory, most likely from the
+  page cache) costs far less than rule evaluation. It would turn malformed JSON into a proper `400`, leaving only
+  internal failures and disconnects to be reported mid-stream.
+- **Boolean parameters are strict.** `emitOutOfScope` accepts `true`, `false` or no value (`?emitOutOfScope` means
+  true) and rejects anything else with `400`. `Boolean.parseBoolean` isn't used because it turns every other string,
+  `maybe` included, into `false`.
