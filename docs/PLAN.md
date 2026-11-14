@@ -103,8 +103,9 @@ Priority order follows the brief: **core done well before extended features**.
   replaces the runs' long constructors and `ParallelRun`'s `ordered` flag. Method level: two-step key reading in
   `RecordEvaluator`, `BatchReader.readOne`, `RuleSelection.requireUniqueIds`, one `SummaryCounter.counts`,
   `RuleFilter.country` keeps the validated `Country`.
-- ☐ Core review, next: step 4 visibility (`RuleEvaluator`, `TrackingRecordView` package-private) and a DESIGN.md
-  note recording the package decision.
+- ☑ Core review, step 4 (visibility): `RuleEvaluator`, `TrackingRecordView` and `RecordKeys.id/country` are
+  package-private; `internal` exposes only the five classes the API packages call. DESIGN.md §1 records why the
+  package split stays as it is.
 - ☐ JSON review, next (need a decision): package-private exception constructors; one name for the failure field in
   both writer layouts; strict duplicate-key detection for catalogs.
 

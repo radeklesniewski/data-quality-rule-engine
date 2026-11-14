@@ -15,7 +15,7 @@ import java.util.Optional;
  *
  * <p>Not thread-safe. Create one per (rule, record) evaluation.
  */
-public final class TrackingRecordView implements RecordView {
+final class TrackingRecordView implements RecordView {
 
     private final DataRecord record;
     private final Map<String, Optional<Object>> reads = new LinkedHashMap<>();
@@ -25,7 +25,7 @@ public final class TrackingRecordView implements RecordView {
      *
      * @param record the record to view
      */
-    public TrackingRecordView(DataRecord record) {
+    TrackingRecordView(DataRecord record) {
         this.record = Objects.requireNonNull(record, "record");
     }
 
@@ -42,7 +42,7 @@ public final class TrackingRecordView implements RecordView {
      *
      * @return the fields read so far, in first-read order
      */
-    public List<FieldRead> reads() {
+    List<FieldRead> reads() {
         return reads.entrySet().stream().map(e -> new FieldRead(e.getKey(), e.getValue())).toList();
     }
 }

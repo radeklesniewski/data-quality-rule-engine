@@ -13,7 +13,7 @@ import java.util.Objects;
  * <p>Failures propagate to the caller. Isolating them per (rule, record) is the engine's job. The caller owns
  * the {@link TrackingRecordView}, so it can still read the fields read before a failure.
  */
-public final class RuleEvaluator {
+final class RuleEvaluator {
 
     private RuleEvaluator() {
     }
@@ -28,7 +28,7 @@ public final class RuleEvaluator {
      * @return the result
      * @throws RuntimeException whatever the rule logic throws, or {@link IllegalStateException} if it returns null
      */
-    public static Result evaluate(Rule rule, TrackingRecordView view, String recordId, long recordIndex) {
+    static Result evaluate(Rule rule, TrackingRecordView view, String recordId, long recordIndex) {
         Objects.requireNonNull(rule, "rule");
         Objects.requireNonNull(view, "view");
         Objects.requireNonNull(recordId, "recordId");
