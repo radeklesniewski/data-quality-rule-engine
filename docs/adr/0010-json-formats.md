@@ -86,3 +86,14 @@ themselves didn't change.
   `STRICT_DUPLICATE_DETECTION` would turn `{"ok": "VALID", "ok": "INVALID"}` into a load problem, in the same spirit as
   rejecting unknown properties. The two layouts also name the failure field differently (`"error"` in a document,
   `"message"` on the NDJSON error line); aligning them would change the wire format.
+
+**Module structure after the single-responsibility refactor (2026-11-14).** The public API is unchanged: the
+entry points `JsonRecordSources`, `JsonRuleCatalog`, `JsonOutcomeWriter`, `JsonDataRecord` and the two exceptions.
+Each entry point now delegates to package-private classes with one job each, so none of these is API:
+
+| Concern | Entry point | Helpers |
+|---|---|---|
+| Records in | `JsonRecordSources` (factories) | `JsonArraySource`, `NdjsonSource`, `ByteLineReader` (byte lines, no decoding), `RecordNodes` (node → record, shared error wording) |
+| Record values | `JsonDataRecord` (path navigation) | `JsonValues` (JSON → plain value model, ADR-0008) |
+| Catalog | `JsonRuleCatalog` (load, watch, read JSON) | `CatalogParser` (catalog format → rules), `CatalogFields` (validated typed property access), `CatalogProblems` (located problem collection), `WatchingCatalog` (change detection and caching) |
+| Outcomes out | `JsonOutcomeWriter` (lifecycle: finish, abort, close) | `OutcomeJson` (shape of outcomes and summary), `OutputLayout` (document vs NDJSON framing) |

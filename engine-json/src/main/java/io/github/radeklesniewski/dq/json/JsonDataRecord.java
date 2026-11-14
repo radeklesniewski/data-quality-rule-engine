@@ -1,10 +1,6 @@
 package io.github.radeklesniewski.dq.json;
 
 import io.github.radeklesniewski.dq.record.DataRecord;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.LinkedHashMap;
-import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -15,7 +11,7 @@ import tools.jackson.databind.JsonNode;
  *
  * <p>Value mapping: strings → {@link String}, booleans → {@link Boolean}, numbers → {@link Number} (decimals are
  * {@link java.math.BigDecimal} when read by this module's sources), objects → {@code Map<String, Object>}, arrays →
- * {@link List}. A JSON {@code null} or a missing property is absent.
+ * {@code List}. A JSON {@code null} or a missing property is absent.
  *
  * <p>The node isn't copied. It must not be modified while a validation run reads the record.
  */
@@ -54,7 +50,7 @@ public final class JsonDataRecord implements DataRecord {
                 return Optional.empty();
             }
         }
-        return Optional.ofNullable(toJava(current));
+        return Optional.ofNullable(JsonValues.toJava(current));
     }
 
     private static String[] segments(String path) {
@@ -66,34 +62,6 @@ public final class JsonDataRecord implements DataRecord {
             }
         }
         return segments;
-    }
-
-    /** Converts a node to the library's plain value model, or {@code null} for JSON null / missing. */
-    private static Object toJava(JsonNode node) {
-        return switch (node.getNodeType()) {
-            case STRING -> node.stringValue();
-            case BOOLEAN -> node.booleanValue();
-            case NUMBER -> node.numberValue();
-            case OBJECT -> {
-                Map<String, Object> map = new LinkedHashMap<>();
-                for (Map.Entry<String, JsonNode> property : node.properties()) {
-                    Object value = toJava(property.getValue());
-                    if (value != null) {
-                        map.put(property.getKey(), value);
-                    }
-                }
-                yield Collections.unmodifiableMap(map);
-            }
-            case ARRAY -> {
-                List<Object> list = new ArrayList<>(node.size());
-                for (int i = 0; i < node.size(); i++) {
-                    list.add(toJava(node.get(i)));
-                }
-                yield Collections.unmodifiableList(list);
-            }
-            case NULL, MISSING -> null;
-            case BINARY, POJO -> node.asString();
-        };
     }
 
     /** Field names only: values may be personal data and must not end up in logs or exception messages. */
