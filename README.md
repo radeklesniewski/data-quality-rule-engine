@@ -103,12 +103,15 @@ curl -s 'localhost:8080/rules?status=DRAFT'   # list the catalog, with the same 
 | `mode=PARALLEL_ORDERED` | `SEQUENTIAL` (default), `PARALLEL_ORDERED`, `PARALLEL_UNORDERED` |
 | `batchSize=500` | records per batch (1–100,000; default 1,000) |
 | `emitOutOfScope=true` | `NOT_APPLICABLE` results for rules outside a record's country |
-| `format=ndjson` | NDJSON response (same as `Accept: application/x-ndjson`) |
+| `format=ndjson` | `json` or `ndjson` response; wins over `Accept`, which may be a list with `q` weights |
+
+Enum and boolean values are case-insensitive, and a bare `emitOutOfScope` means `true`. Each endpoint answers
+only its exact path (`404`) and method (`405` with `Allow`).
 
 How a request is processed:
 
-1. The query parameters are checked (`400` on mistakes), and the body is copied to a temporary file. Bodies over the
-   limit get `413`. Reading the whole upload first means any client works, including ones that only read the
+1. The query parameters and content type are checked first (`400`, `415`), then the catalog (`500` if it can't be
+   loaded), and the body is copied to a temporary file. Bodies over the limit get `413`. Reading the whole upload first means any client works, including ones that only read the
    response after sending everything, like `HttpURLConnection`, Python `requests` and many proxies.
 2. Records are then read lazily from that file and validated, and outcomes are streamed back as they're produced.
    Memory stays bounded at any body size.
