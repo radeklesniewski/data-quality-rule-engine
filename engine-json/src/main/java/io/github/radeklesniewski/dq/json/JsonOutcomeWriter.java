@@ -36,17 +36,14 @@ import tools.jackson.core.JsonGenerator;
 public final class JsonOutcomeWriter implements OutcomeSink, AutoCloseable {
 
     private final JsonGenerator json;
-    private final boolean document;
+    private final Layout layout;
     private boolean finished;
     private boolean closed;
 
-    private JsonOutcomeWriter(OutputStream out, boolean document) {
+    private JsonOutcomeWriter(OutputStream out, Layout layout) {
         this.json = Json.MAPPER.createGenerator(Objects.requireNonNull(out, "out"));
-        this.document = document;
-        if (document) {
-            json.writeStartObject();
-            json.writeArrayPropertyStart("outcomes");
-        }
+        this.layout = layout;
+        layout.begin(json);
     }
 
     /**
@@ -56,7 +53,7 @@ public final class JsonOutcomeWriter implements OutcomeSink, AutoCloseable {
      * @return the writer
      */
     public static JsonOutcomeWriter document(OutputStream out) {
-        return new JsonOutcomeWriter(out, true);
+        return new JsonOutcomeWriter(out, Layout.DOCUMENT);
     }
 
     /**
@@ -66,14 +63,17 @@ public final class JsonOutcomeWriter implements OutcomeSink, AutoCloseable {
      * @return the writer
      */
     public static JsonOutcomeWriter lines(OutputStream out) {
-        return new JsonOutcomeWriter(out, false);
+        return new JsonOutcomeWriter(out, Layout.LINES);
     }
 
+    /**
+     * Writes one outcome.
+     *
+     * @throws IllegalStateException if the writer is already finished, aborted or closed
+     */
     @Override
     public void accept(Outcome outcome) {
-        if (finished) {
-            throw new IllegalStateException("Writer already finished");
-        }
+        ensureWritable();
         switch (outcome) {
             case Result result -> writeResult(result);
             case RuleError error -> writeRuleError(error);
@@ -85,21 +85,13 @@ public final class JsonOutcomeWriter implements OutcomeSink, AutoCloseable {
      * Writes the run summary and completes the JSON. No more outcomes may be written afterwards.
      *
      * @param summary the run's summary
+     * @throws IllegalStateException if the writer is already finished, aborted or closed
      */
     public void finish(RunSummary summary) {
         Objects.requireNonNull(summary, "summary");
-        if (finished) {
-            throw new IllegalStateException("Writer already finished");
-        }
+        ensureWritable();
         finished = true;
-        if (document) {
-            json.writeEndArray();
-            json.writeName("summary");
-            writeSummary(summary, false);
-            json.writeEndObject();
-        } else {
-            writeSummary(summary, true);
-        }
+        layout.end(json, () -> writeSummaryFields(summary));
         json.flush();
     }
 
@@ -109,45 +101,40 @@ public final class JsonOutcomeWriter implements OutcomeSink, AutoCloseable {
      * was already partly sent (e.g. an HTTP response with status 200) and the input then turned out to be broken.
      *
      * @param reason a message for the consumer; must not contain record data
+     * @throws IllegalStateException if the writer is already finished, aborted or closed
      */
     public void abort(String reason) {
         Objects.requireNonNull(reason, "reason");
-        if (finished) {
-            throw new IllegalStateException("Writer already finished");
-        }
+        ensureWritable();
         finished = true;
-        if (document) {
-            json.writeEndArray();
-            json.writeStringProperty("error", reason);
-            json.writeEndObject();
-        } else {
-            json.writeStartObject();
-            json.writeStringProperty("type", "error");
-            json.writeStringProperty("message", reason);
-            json.writeEndObject();
-        }
+        layout.fail(json, reason);
         json.flush();
     }
 
-    /** Completes any open JSON structure and closes the stream. Idempotent. */
+    /**
+     * Completes any open JSON structure and closes the stream. Idempotent. Without {@link #finish} the output has no
+     * summary, which tells a consumer the run didn't complete.
+     */
     @Override
     public void close() {
+        if (!closed) {
+            closed = true;
+            json.close(); // AUTO_CLOSE_CONTENT closes open arrays and objects, see Json.MAPPER
+        }
+    }
+
+    private void ensureWritable() {
         if (closed) {
-            return;
+            throw new IllegalStateException("Writer already closed");
         }
-        closed = true;
-        if (document && !finished) {
-            json.writeEndArray();
-            json.writeEndObject();
+        if (finished) {
+            throw new IllegalStateException("Writer already finished");
         }
-        json.close();
     }
 
     private void writeResult(Result result) {
         Provenance provenance = result.provenance();
-        json.writeStartObject();
-        json.writeStringProperty("type", "result");
-        json.writeNumberProperty("recordIndex", result.recordIndex());
+        writeOutcomeStart("result", result.recordIndex());
         json.writeStringProperty("recordId", result.recordId());
         json.writeStringProperty("ruleId", result.ruleId());
         json.writeStringProperty("decision", result.decision().name());
@@ -164,9 +151,7 @@ public final class JsonOutcomeWriter implements OutcomeSink, AutoCloseable {
     }
 
     private void writeRuleError(RuleError error) {
-        json.writeStartObject();
-        json.writeStringProperty("type", "ruleError");
-        json.writeNumberProperty("recordIndex", error.recordIndex());
+        writeOutcomeStart("ruleError", error.recordIndex());
         json.writeStringProperty("recordId", error.recordId());
         json.writeStringProperty("ruleId", error.ruleId());
         json.writeStringProperty("errorType", error.errorType());
@@ -176,15 +161,20 @@ public final class JsonOutcomeWriter implements OutcomeSink, AutoCloseable {
     }
 
     private void writeRecordError(RecordError error) {
-        json.writeStartObject();
-        json.writeStringProperty("type", "recordError");
-        json.writeNumberProperty("recordIndex", error.recordIndex());
+        writeOutcomeStart("recordError", error.recordIndex());
         if (error.recordId().isPresent()) {
             json.writeStringProperty("recordId", error.recordId().get());
         }
         json.writeStringProperty("errorType", error.errorType());
         json.writeStringProperty("message", error.message());
         json.writeEndObject();
+    }
+
+    /** Opens an outcome object with the properties every outcome starts with. The caller closes it. */
+    private void writeOutcomeStart(String type, long recordIndex) {
+        json.writeStartObject();
+        json.writeStringProperty("type", type);
+        json.writeNumberProperty("recordIndex", recordIndex);
     }
 
     private void writeFieldsRead(List<FieldRead> fieldsRead) {
@@ -202,11 +192,7 @@ public final class JsonOutcomeWriter implements OutcomeSink, AutoCloseable {
         json.writeEndArray();
     }
 
-    private void writeSummary(RunSummary summary, boolean typed) {
-        json.writeStartObject();
-        if (typed) {
-            json.writeStringProperty("type", "summary");
-        }
+    private void writeSummaryFields(RunSummary summary) {
         json.writeNumberProperty("rulesSelected", summary.rulesSelected());
         json.writeNumberProperty("recordsRead", summary.recordsRead());
         json.writeNumberProperty("batches", summary.batches());
@@ -216,12 +202,72 @@ public final class JsonOutcomeWriter implements OutcomeSink, AutoCloseable {
         json.writeNumberProperty("recordErrorCount", summary.recordErrorCount());
         writeCounts("resultsByDecision", summary.resultsByDecision());
         writeCounts("resultsBySeverity", summary.resultsBySeverity());
-        json.writeEndObject();
     }
 
     private void writeCounts(String name, Map<? extends Enum<?>, Long> counts) {
         json.writeObjectPropertyStart(name);
         counts.forEach((key, count) -> json.writeNumberProperty(key.name(), count));
         json.writeEndObject();
+    }
+
+    /** Where outcomes go and how the output ends. Each layout's framing lives here, in one place. */
+    private enum Layout {
+
+        /** {@code {"outcomes": [...], "summary": {...}}}, or {@code "error"} instead of {@code "summary"}. */
+        DOCUMENT {
+            @Override
+            void begin(JsonGenerator json) {
+                json.writeStartObject();
+                json.writeArrayPropertyStart("outcomes");
+            }
+
+            @Override
+            void end(JsonGenerator json, Runnable summaryFields) {
+                json.writeEndArray();
+                json.writeObjectPropertyStart("summary");
+                summaryFields.run();
+                json.writeEndObject();
+                json.writeEndObject();
+            }
+
+            @Override
+            void fail(JsonGenerator json, String reason) {
+                json.writeEndArray();
+                json.writeStringProperty("error", reason);
+                json.writeEndObject();
+            }
+        },
+
+        /** One outcome per line, then a {@code "summary"} or {@code "error"} line. */
+        LINES {
+            @Override
+            void begin(JsonGenerator json) {
+                // Nothing frames NDJSON.
+            }
+
+            @Override
+            void end(JsonGenerator json, Runnable summaryFields) {
+                json.writeStartObject();
+                json.writeStringProperty("type", "summary");
+                summaryFields.run();
+                json.writeEndObject();
+            }
+
+            @Override
+            void fail(JsonGenerator json, String reason) {
+                json.writeStartObject();
+                json.writeStringProperty("type", "error");
+                json.writeStringProperty("message", reason);
+                json.writeEndObject();
+            }
+        };
+
+        abstract void begin(JsonGenerator json);
+
+        /** Writes the summary and closes the output's framing. */
+        abstract void end(JsonGenerator json, Runnable summaryFields);
+
+        /** Writes the failure marker and closes the output's framing. */
+        abstract void fail(JsonGenerator json, String reason);
     }
 }

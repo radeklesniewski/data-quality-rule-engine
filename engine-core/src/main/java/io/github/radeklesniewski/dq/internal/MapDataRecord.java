@@ -83,8 +83,9 @@ public final class MapDataRecord implements DataRecord {
         return fields.hashCode();
     }
 
+    /** Field names only: values may be personal data and must not end up in logs or exception messages. */
     @Override
     public String toString() {
-        return "MapDataRecord" + fields;
+        return "MapDataRecord" + fields.keySet();
     }
 }

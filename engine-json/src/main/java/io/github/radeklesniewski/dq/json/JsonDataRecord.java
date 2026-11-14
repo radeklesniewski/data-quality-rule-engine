@@ -69,7 +69,7 @@ public final class JsonDataRecord implements DataRecord {
     }
 
     /** Converts a node to the library's plain value model, or {@code null} for JSON null / missing. */
-    static Object toJava(JsonNode node) {
+    private static Object toJava(JsonNode node) {
         return switch (node.getNodeType()) {
             case STRING -> node.stringValue();
             case BOOLEAN -> node.booleanValue();
@@ -96,8 +96,9 @@ public final class JsonDataRecord implements DataRecord {
         };
     }
 
+    /** Field names only: values may be personal data and must not end up in logs or exception messages. */
     @Override
     public String toString() {
-        return "JsonDataRecord" + object;
+        return "JsonDataRecord" + object.properties().stream().map(Map.Entry::getKey).toList();
     }
 }

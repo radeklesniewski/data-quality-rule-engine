@@ -10,6 +10,7 @@ import io.github.radeklesniewski.dq.record.RecordSource;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.UncheckedIOException;
 import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
@@ -197,9 +198,93 @@ class JsonRecordSourcesTest {
             assertThatThrownBy(source::next).isInstanceOf(RecordReadException.class)
                     .hasMessage("Line 2 is not valid JSON");
             assertThatThrownBy(source::next).isInstanceOf(RecordReadException.class)
-                    .hasMessage("Line 3 is ARRAY, expected a JSON object");
+                    .hasMessage("Line 3 is an array, expected a JSON object");
             assertThat(next(source).get("id")).contains("r4");
         }
+
+        @Test
+        void invalidUtf8MakesOnlyThatLineUnreadableInsteadOfAlteringTheValue() {
+            byte[] input = "{\"id\": \"r1\", \"name\": \"AXB\"}\n{\"id\": \"r2\"}\n".getBytes(UTF_8);
+            input[23] = (byte) 0xFF; // the 'X' in "AXB"
+            RecordSource source = JsonRecordSources.lines(new ByteArrayInputStream(input));
+
+            assertThatThrownBy(source::next).isInstanceOf(RecordReadException.class)
+                    .hasMessage("Line 1 is not valid JSON");
+            assertThat(next(source).get("id")).contains("r2");
+        }
+
+        @Test
+        void acceptsAByteOrderMarkCrlfAndAMissingFinalNewline() {
+            RecordSource source = JsonRecordSources.lines(withBom("{\"id\": \"r1\"}\r\n\r\n{\"id\": \"r2\"}"));
+
+            assertThat(next(source).get("id")).contains("r1");
+            assertThat(next(source).get("id")).contains("r2");
+            assertThat(source.next()).isEmpty();
+        }
+
+        @Test
+        void longLinesSpanningSeveralBuffersAreReadWhole() {
+            String name = "x".repeat(200_000);
+            RecordSource source = JsonRecordSources.lines(stream("{\"name\": \"" + name + "\"}\n{\"id\": \"r2\"}"));
+
+            assertThat(next(source).get("name")).contains(name);
+            assertThat(next(source).get("id")).contains("r2");
+        }
+
+        @Test
+        void aFailingStreamIsAnIoErrorNotABadLine() {
+            RecordSource source = JsonRecordSources.lines(failingAfter("{\"id\": \"r1\"}\n"));
+
+            assertThat(next(source).get("id")).contains("r1");
+            assertThatThrownBy(source::next).isInstanceOf(UncheckedIOException.class)
+                    .hasRootCauseMessage("connection reset");
+        }
+    }
+
+    @Nested
+    class Encoding {
+
+        @Test
+        void arrayAcceptsAByteOrderMark() {
+            assertThat(next(JsonRecordSources.array(withBom("[{\"id\": \"r1\"}]"))).get("id")).contains("r1");
+        }
+
+        @Test
+        void aFailingStreamInAnArrayIsAnIoErrorNotMalformedJson() {
+            RecordSource source = JsonRecordSources.array(failingAfter("[{\"id\": \"r1\"},"));
+
+            assertThat(next(source).get("id")).contains("r1");
+            assertThatThrownBy(source::next).isInstanceOf(UncheckedIOException.class)
+                    .hasMessage("Failed to read JSON input")
+                    .hasRootCauseMessage("connection reset");
+            assertThat(source.next()).as("source stays finished after a fatal error").isEmpty();
+        }
+    }
+
+    private static InputStream withBom(String text) {
+        byte[] body = text.getBytes(UTF_8);
+        byte[] bytes = new byte[body.length + 3];
+        bytes[0] = (byte) 0xEF;
+        bytes[1] = (byte) 0xBB;
+        bytes[2] = (byte) 0xBF;
+        System.arraycopy(body, 0, bytes, 3, body.length);
+        return new ByteArrayInputStream(bytes);
+    }
+
+    /** Delivers {@code text}, then fails like a dropped connection. */
+    private static InputStream failingAfter(String text) {
+        byte[] bytes = text.getBytes(UTF_8);
+        return new InputStream() {
+            private int position;
+
+            @Override
+            public int read() throws IOException {
+                if (position < bytes.length) {
+                    return bytes[position++];
+                }
+                throw new IOException("connection reset");
+            }
+        };
     }
 
     @Test
@@ -209,5 +294,12 @@ class JsonRecordSourcesTest {
         DataRecord record = JsonDataRecord.of(Json.MAPPER.readTree("{\"a\": {\"b\": 1}}"));
         assertThatThrownBy(() -> record.get("a..b")).isInstanceOf(IllegalArgumentException.class);
         assertThat(record.get("a.b")).contains(1);
+    }
+
+    @Test
+    void jsonDataRecordToStringShowsFieldNamesButNeverValues() {
+        DataRecord record = JsonDataRecord.of(Json.MAPPER.readTree("{\"id\": \"r1\", \"iban\": \"DE89370400440532013000\"}"));
+
+        assertThat(record.toString()).isEqualTo("JsonDataRecord[id, iban]");
     }
 }

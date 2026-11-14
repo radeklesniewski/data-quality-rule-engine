@@ -55,3 +55,34 @@ line, column or element positions only. Field values leave the library only insi
   untrusted bulk input.
 - Next: parameterised logic in the catalog (e.g. `{"logic": "minLength", "params": {"field": "vatId", "min": 9}}`)
   so that new rules of an existing kind need no code. And a JSON Schema for catalog files, to help editors.
+
+## Review notes (2026-11-14)
+
+Added after an independent review of `engine-json`. They record fixes and the reasoning behind them. The formats
+themselves didn't change.
+
+- **NDJSON is split into lines as bytes, and Jackson parses each line's bytes.** The first version decoded the
+  input with an `InputStreamReader`. That replaced invalid UTF-8 with U+FFFD without telling anyone, so rules
+  validated altered values, and it rejected a UTF-8 byte-order mark, so a file saved on Windows lost its first
+  record. Jackson validates UTF-8 and accepts a BOM, so a bad line is now a `RecordError` for that line only, as the
+  format promises. The array format already behaved this way. CRLF line endings and a missing final newline are fine.
+- **A failing stream is an I/O error, not a syntax error.** Jackson 3 wraps stream failures in `JacksonIOException`,
+  a subtype of the `JacksonException` that also means "malformed". A dropped connection or a disk error used to be
+  reported as `Malformed JSON at line …` (array source) or `Catalog is not valid JSON`. Both now throw
+  `UncheckedIOException`, as the NDJSON source always did.
+- **`toString()` of a record shows field names only** (`JsonDataRecord[id, iban]`, and the same for core's
+  `MapDataRecord`). Values are personal data and must not reach logs or exception messages; they leave the library
+  only inside result provenance.
+- **`JsonOutcomeWriter` rejects any write after `close()`** with `IllegalStateException` (it used to fail inside
+  Jackson with an NPE). `close()` relies on Jackson's `AUTO_CLOSE_CONTENT`, enabled explicitly in `Json.MAPPER`, to
+  close whatever is open. So the output stays well-formed even when a write failed half-way through an outcome, where
+  closing the array and object by hand used to throw.
+- **`CatalogLoadException.problems()` survives serialization** (the field was `transient`, so it came back `null`) and
+  the exception needs at least one problem.
+- **Why the catalog is parsed by hand rather than bound with Jackson.** Binding straight into Java records would be
+  shorter, but it stops at the first error, which would lose "report every problem at once". The parser builds a
+  rule only when every part of it parsed, so it never relies on "no new problems means every value is present".
+- **Not done yet:** JSON with duplicate keys keeps the last value silently. For catalogs, Jackson's
+  `STRICT_DUPLICATE_DETECTION` would turn `{"ok": "VALID", "ok": "INVALID"}` into a load problem, in the same spirit as
+  rejecting unknown properties. The two layouts also name the failure field differently (`"error"` in a document,
+  `"message"` on the NDJSON error line); aligning them would change the wire format.
