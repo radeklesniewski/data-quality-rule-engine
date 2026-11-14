@@ -92,6 +92,12 @@ Priority order follows the brief: **core done well before extended features**.
 - ☑ JSON single-responsibility refactor: entry points delegate to package-private helpers (table in ADR-0010).
   Public API unchanged; `ByteLineReaderTest` added.
 - ☑ `engine-json` split into feature packages `record`, `catalog`, `outcome` (+ unexported `internal`), ADR-0011.
+- ☑ Core review, step 1 (bugs): an exception whose `getMessage()` throws no longer aborts the run (`Failures`);
+  `RunCancelledException` keeps its summary through serialization; numeric ids in plain notation; no `int` overflow
+  sizing a parallel batch's outcomes; `toBuilder()` keeps derived parallel defaults derived; every record read goes
+  through `RecordFields.read`, so `RecordView.of` enforces the `DataRecord` contract too.
+- ☐ Core review, next: step 2 `RecordFields.as` + `RuleIds`; step 3 `ParallelRun`/`BatchWindow`/`Cancellation` and
+  method-level refactors; step 4 visibility (`RuleEvaluator`, `TrackingRecordView` package-private).
 - ☐ JSON review, next (need a decision): package-private exception constructors; one name for the failure field in
   both writer layouts; strict duplicate-key detection for catalogs.
 
@@ -102,7 +108,8 @@ Priority order follows the brief: **core done well before extended features**.
 - ☑ The brief gives `vatFormat` / `ibanFormat` no default decision. Fixtures use `REVIEW` (an unexpected value goes to a human).
   The brief gives no severities, so fixtures use `ERROR`.
 - ☑ JSON `null` = absent field; empty string = present (ADR-0008).
-- ☑ Record id: a non-blank string or a number. Configurable field (default `id`). Uniqueness isn't checked (would
-  need unbounded memory). A non-string country → `RecordError`.
+- ☑ Record id: a non-blank string or a finite number, rendered in plain notation whatever its Java type
+  (`1.2345678E7` → `"12345678"`; NaN → `RecordError`). Configurable field (default `id`). Uniqueness isn't checked
+  (would need unbounded memory). A non-string country → `RecordError`.
 - ☑ The engine doesn't close the `RecordSource`; whoever opens it closes it.
 - ☑ `REQUIREMENTS.md` stays local (git-ignored). Don't commit it or quote it verbatim in committed files.

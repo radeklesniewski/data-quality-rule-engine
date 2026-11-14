@@ -20,6 +20,10 @@ public final class RunOptions {
     private final RuleFilter ruleFilter;
     private final boolean emitOutOfScope;
     private final ExecutionMode executionMode;
+    // What the caller set (null: not set), kept apart from the resolved values below, so toBuilder() hands on only
+    // explicit choices and derived defaults are recomputed: change parallelism and the default window follows.
+    private final Integer requestedParallelism;
+    private final Integer requestedMaxInFlightBatches;
     private final int parallelism;
     private final int maxInFlightBatches;
 
@@ -28,11 +32,13 @@ public final class RunOptions {
         this.ruleFilter = builder.ruleFilter;
         this.emitOutOfScope = builder.emitOutOfScope;
         this.executionMode = builder.executionMode;
-        this.parallelism = builder.parallelism != null
-                ? builder.parallelism
+        this.requestedParallelism = builder.parallelism;
+        this.requestedMaxInFlightBatches = builder.maxInFlightBatches;
+        this.parallelism = requestedParallelism != null
+                ? requestedParallelism
                 : Runtime.getRuntime().availableProcessors();
-        this.maxInFlightBatches = builder.maxInFlightBatches != null
-                ? builder.maxInFlightBatches
+        this.maxInFlightBatches = requestedMaxInFlightBatches != null
+                ? requestedMaxInFlightBatches
                 : 2 * parallelism;
     }
 
@@ -56,18 +62,21 @@ public final class RunOptions {
     }
 
     /**
-     * Returns a builder pre-filled with these options.
+     * Returns a builder pre-filled with these options. Settings that were left at a derived default
+     * ({@link #parallelism()}, {@link #maxInFlightBatches()}) stay derived: after {@code parallelism(2)} the default
+     * in-flight limit is {@code 4}, whatever it was before.
      *
      * @return a builder pre-filled with these options
      */
     public Builder toBuilder() {
-        return new Builder()
+        Builder builder = new Builder()
                 .batchSize(batchSize)
                 .ruleFilter(ruleFilter)
                 .emitOutOfScope(emitOutOfScope)
-                .executionMode(executionMode)
-                .parallelism(parallelism)
-                .maxInFlightBatches(maxInFlightBatches);
+                .executionMode(executionMode);
+        builder.parallelism = requestedParallelism;
+        builder.maxInFlightBatches = requestedMaxInFlightBatches;
+        return builder;
     }
 
     /**

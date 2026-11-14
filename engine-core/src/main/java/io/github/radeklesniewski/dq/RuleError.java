@@ -47,11 +47,6 @@ public record RuleError(
     public static RuleError of(String ruleId, String recordId, long recordIndex, List<FieldRead> fieldsRead,
             Throwable cause) {
         return new RuleError(ruleId, recordId, recordIndex, fieldsRead,
-                cause.getClass().getName(), messageOf(cause), cause);
-    }
-
-    static String messageOf(Throwable cause) {
-        String message = cause.getMessage();
-        return message == null || message.isBlank() ? cause.getClass().getName() : message;
+                Failures.type(cause), Failures.message(cause), cause);
     }
 }

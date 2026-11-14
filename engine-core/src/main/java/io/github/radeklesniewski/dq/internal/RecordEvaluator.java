@@ -21,6 +21,12 @@ import java.util.function.Consumer;
  */
 final class RecordEvaluator {
 
+    /**
+     * Upper bound for pre-sizing a batch's outcome list. The real count can be far lower (out-of-scope rules emit
+     * nothing), and {@code batch × rules} can exceed {@code int}; the list grows if needed.
+     */
+    private static final int MAX_INITIAL_CAPACITY = 8_192;
+
     private final List<Rule> rules;
     private final RecordKeys keys;
     private final boolean emitOutOfScope;
@@ -33,7 +39,8 @@ final class RecordEvaluator {
 
     /** Evaluates a whole batch into a list. Used by parallel runs, whose workers can't call the sink directly. */
     List<Outcome> evaluateBatch(List<BatchItem> batch) {
-        List<Outcome> outcomes = new ArrayList<>(batch.size() * Math.max(1, rules.size()));
+        long expected = (long) batch.size() * Math.max(1, rules.size());
+        List<Outcome> outcomes = new ArrayList<>((int) Math.min(expected, MAX_INITIAL_CAPACITY));
         batch.forEach(item -> evaluate(item, outcomes::add));
         return outcomes;
     }

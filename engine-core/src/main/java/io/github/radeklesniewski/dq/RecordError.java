@@ -37,6 +37,6 @@ public record RecordError(
      * @return the error
      */
     public static RecordError of(long recordIndex, Optional<String> recordId, Throwable cause) {
-        return new RecordError(recordIndex, recordId, cause.getClass().getName(), RuleError.messageOf(cause), cause);
+        return new RecordError(recordIndex, recordId, Failures.type(cause), Failures.message(cause), cause);
     }
 }
