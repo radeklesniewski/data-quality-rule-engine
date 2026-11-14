@@ -89,6 +89,8 @@ Priority order follows the brief: **core done well before extended features**.
   accepted); stream failures are I/O errors, not "malformed JSON"; record `toString()` without values; writer rejects
   writes after close and stays well-formed after a failed write; `CatalogLoadException` serializable and never empty.
   Refactors: catalog `Parser`, `ArraySource` state enum, writer `Layout` enum.
+- ☑ JSON single-responsibility refactor: entry points delegate to package-private helpers (table in ADR-0010).
+  Public API unchanged; `ByteLineReaderTest` added.
 - ☐ JSON review, next (need a decision): package-private exception constructors; one name for the failure field in
   both writer layouts; strict duplicate-key detection for catalogs.
 
