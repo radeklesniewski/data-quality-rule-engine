@@ -85,7 +85,7 @@ caller gets results and errors together and the run carries on.
 | What fails | Becomes | Effect |
 |---|---|---|
 | Rule logic throws, returns `null`, misses a `require`d field, meets a wrong type, overflows the stack | `RuleError`: rule, record id and index, **fields read before the failure**, exception type and message | that record's other rules still run |
-| Source can't read one record (`RecordReadException`, e.g. a JSON element that isn't an object, a broken NDJSON line) | `RecordError` with the input position | next record |
+| Source can't read one record (`RecordReadException`, e.g. a JSON element that isn't an object, a broken NDJSON line, including invalid UTF-8, which is never silently replaced) | `RecordError` with the input position | next record |
 | Record has no usable id or a non-string country | `RecordError` (id if known) | its rules are skipped |
 | Invalid catalog, throwing filter | exception **before any record is read** | configuration error, fail fast |
 | JSON array input is malformed, or has content after its closing `]` | `JsonSourceException` | records read before that point are still validated and delivered; then the run fails (never silently truncated) |

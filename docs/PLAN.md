@@ -85,6 +85,12 @@ Priority order follows the brief: **core done well before extended features**.
   notes added to ADR-0003 (action endpoint, deadlock mechanism, temp-file safety, early `200`).
 - ☐ HTTP review, next: split `validate` into smaller steps; formats in `RunRequest`; `Accept` lists; exact path
   matching; syntax pre-pass for a `400` on malformed JSON.
+- ☑ JSON review (ADR-0010 review notes): NDJSON read as bytes (invalid UTF-8 is a bad line, not altered values; BOM
+  accepted); stream failures are I/O errors, not "malformed JSON"; record `toString()` without values; writer rejects
+  writes after close and stays well-formed after a failed write; `CatalogLoadException` serializable and never empty.
+  Refactors: catalog `Parser`, `ArraySource` state enum, writer `Layout` enum.
+- ☐ JSON review, next (need a decision): package-private exception constructors; one name for the failure field in
+  both writer layouts; strict duplicate-key detection for catalogs.
 
 ## Open questions / assumptions log
 - ☑ Record id missing → record-level error, rule evaluations skipped (confirmed by user).

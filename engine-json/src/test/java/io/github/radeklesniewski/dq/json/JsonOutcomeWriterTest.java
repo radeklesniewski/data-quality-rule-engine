@@ -134,4 +134,38 @@ class JsonOutcomeWriterTest {
         writer.close();
         writer.close();
     }
+
+    @Test
+    void rejectsEveryWriteAfterClose() {
+        JsonOutcomeWriter writer = JsonOutcomeWriter.lines(new ByteArrayOutputStream());
+        writer.close();
+
+        assertThatThrownBy(() -> writer.accept(RESULT)).isInstanceOf(IllegalStateException.class)
+                .hasMessage("Writer already closed");
+        assertThatThrownBy(() -> writer.finish(SUMMARY)).isInstanceOf(IllegalStateException.class);
+        assertThatThrownBy(() -> writer.abort("late")).isInstanceOf(IllegalStateException.class);
+    }
+
+    /** A host value Jackson can't serialise: the write fails after the outcome object has been opened. */
+    public static final class Exploding {
+        public String getValue() {
+            throw new IllegalStateException("boom");
+        }
+    }
+
+    @Test
+    void outputStaysWellFormedWhenAnOutcomeFailsHalfWay() {
+        Result unserializable = new Result(Decision.VALID, Severity.INFO, Provenance.evaluated("r", "id", 0,
+                List.of(FieldRead.present("odd", new Exploding())), "ok", false));
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        JsonOutcomeWriter writer = JsonOutcomeWriter.document(out);
+        writer.accept(RESULT);
+
+        assertThatThrownBy(() -> writer.accept(unserializable)).isInstanceOf(RuntimeException.class);
+        writer.close();
+
+        JsonNode doc = Json.MAPPER.readTree(out.toString(UTF_8));
+        assertThat(doc.get("outcomes").get(0).get("ruleId").stringValue()).isEqualTo("vatFormat");
+        assertThat(doc.has("summary")).isFalse();
+    }
 }

@@ -13,8 +13,12 @@ import io.github.radeklesniewski.dq.rule.RuleCatalog;
 import io.github.radeklesniewski.dq.rule.RuleStatus;
 import io.github.radeklesniewski.dq.rule.Severity;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.attribute.FileTime;
@@ -163,5 +167,53 @@ class JsonRuleCatalogTest {
 
         assertThatThrownBy(() -> JsonRuleCatalog.watching(file, Fixtures.LOGIC))
                 .isInstanceOf(CatalogLoadException.class);
+    }
+
+    @Test
+    void loadExceptionKeepsItsProblemsThroughSerialization() throws Exception {
+        CatalogLoadException original = new CatalogLoadException(List.of("rules[0]: \"id\" is required"), null);
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (ObjectOutputStream out = new ObjectOutputStream(bytes)) {
+            out.writeObject(original);
+        }
+        CatalogLoadException copy;
+        try (ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            copy = (CatalogLoadException) in.readObject();
+        }
+
+        assertThat(copy.problems()).containsExactly("rules[0]: \"id\" is required");
+    }
+
+    @Test
+    void loadExceptionNeedsAtLeastOneProblem() {
+        assertThatThrownBy(() -> new CatalogLoadException(List.of(), null))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void anUnreadableStreamIsAnIoErrorNotInvalidJson() {
+        InputStream failing = new InputStream() {
+            @Override
+            public int read() throws IOException {
+                throw new IOException("disk error");
+            }
+        };
+
+        assertThatThrownBy(() -> JsonRuleCatalog.load(failing, Fixtures.LOGIC))
+                .isInstanceOf(UncheckedIOException.class)
+                .hasRootCauseMessage("disk error");
+    }
+
+    @Test
+    void watchingCatalogWhoseFileDisappearsFailsWithAnIoError(@TempDir Path dir) throws IOException {
+        Path file = dir.resolve("catalog.json");
+        Files.writeString(file, """
+                {"rules": [{"id": "one", "label": "One", "logic": "vatFormat", "status": "RELEASED",
+                  "severity": "ERROR", "decisionMapping": {"default": "VALID"}}]}""");
+        RuleCatalog catalog = JsonRuleCatalog.watching(file, Fixtures.LOGIC);
+        Files.delete(file);
+
+        assertThatThrownBy(catalog::rules).isInstanceOf(UncheckedIOException.class)
+                .hasMessageContaining("catalog.json");
     }
 }

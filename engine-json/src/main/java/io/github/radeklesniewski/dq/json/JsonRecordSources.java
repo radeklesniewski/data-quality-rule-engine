@@ -3,17 +3,17 @@ package io.github.radeklesniewski.dq.json;
 import io.github.radeklesniewski.dq.record.DataRecord;
 import io.github.radeklesniewski.dq.record.RecordReadException;
 import io.github.radeklesniewski.dq.record.RecordSource;
-import java.io.BufferedReader;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.io.UncheckedIOException;
-import java.nio.charset.StandardCharsets;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
 import tools.jackson.core.JacksonException;
 import tools.jackson.core.JsonParser;
 import tools.jackson.core.JsonToken;
+import tools.jackson.core.exc.JacksonIOException;
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -28,12 +28,14 @@ import tools.jackson.databind.JsonNode;
  *       closing {@code ]} (a second array, stray text) is also a {@link JsonSourceException}, raised once all
  *       records of the array have been returned. It's never silently ignored.</li>
  *   <li>{@link #lines(InputStream)}: newline-delimited JSON (NDJSON), one object per line, typical for batch files.
- *       Each line is parsed on its own, so even a syntax error only makes that one line unreadable.
- *       Blank lines are ignored.</li>
+ *       Each line is parsed on its own, so even a syntax error or invalid UTF-8 only makes that one line
+ *       unreadable. Blank lines are ignored.</li>
  * </ul>
  *
- * <p>The returned sources own the stream and close it in {@link RecordSource#close()}. Input is read as UTF-8.
- * Error messages give positions, never field values.
+ * <p>Input is UTF-8; a leading byte-order mark is accepted in both formats. Invalid UTF-8 is an error, never
+ * silently replaced, so rules never see altered values. A failure of the underlying stream is an
+ * {@link UncheckedIOException}, not a syntax error. The returned sources own the stream and close it in
+ * {@link RecordSource#close()}. Error messages give positions, never field values.
  */
 public final class JsonRecordSources {
 
@@ -57,15 +59,16 @@ public final class JsonRecordSources {
      * @return a lazy source
      */
     public static RecordSource lines(InputStream in) {
-        Objects.requireNonNull(in, "in");
-        return new LinesSource(new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8)));
+        return new LinesSource(Objects.requireNonNull(in, "in"));
     }
 
     private static final class ArraySource implements RecordSource {
+
+        private enum State { BEFORE_ARRAY, IN_ARRAY, DONE }
+
         private final JsonParser parser;
-        private boolean started;
-        private boolean finished;
-        private long position;
+        private State state = State.BEFORE_ARRAY;
+        private long elementIndex;
 
         ArraySource(JsonParser parser) {
             this.parser = parser;
@@ -73,52 +76,66 @@ public final class JsonRecordSources {
 
         @Override
         public Optional<DataRecord> next() {
-            if (finished) {
+            try {
+                return switch (state) {
+                    case BEFORE_ARRAY -> openArray() ? nextElement() : Optional.empty();
+                    case IN_ARRAY -> nextElement();
+                    case DONE -> Optional.empty();
+                };
+            } catch (JacksonIOException e) {
+                state = State.DONE;
+                throw Json.ioFailure("Failed to read JSON input", e);
+            } catch (JacksonException e) {
+                throw fail("Malformed JSON at " + location() + ": records can't be read further", e);
+            }
+        }
+
+        /** Reads the opening bracket. Returns {@code false} for empty input, which has no records. */
+        private boolean openArray() {
+            JsonToken first = parser.nextToken();
+            if (first == null) {
+                state = State.DONE;
+                return false;
+            }
+            if (first != JsonToken.START_ARRAY) {
+                throw fail("Expected a JSON array of records but found " + first + " at " + location(), null);
+            }
+            state = State.IN_ARRAY;
+            return true;
+        }
+
+        private Optional<DataRecord> nextElement() {
+            JsonToken token = parser.nextToken();
+            if (token == JsonToken.END_ARRAY) {
+                requireEndOfInput();
                 return Optional.empty();
             }
-            try {
-                if (!started) {
-                    started = true;
-                    JsonToken first = parser.nextToken();
-                    if (first == null) {
-                        finished = true;
-                        return Optional.empty(); // empty input: no records
-                    }
-                    if (first != JsonToken.START_ARRAY) {
-                        finished = true;
-                        throw new JsonSourceException("Expected a JSON array of records but found " + first
-                                + " at " + location(), null);
-                    }
-                }
-                JsonToken token = parser.nextToken();
-                if (token == JsonToken.END_ARRAY) {
-                    finished = true;
-                    // Anything but whitespace after the array (a second array, stray text) would otherwise be
-                    // silently dropped. Report it instead, after every record of the array has been delivered.
-                    JsonToken trailing = parser.nextToken();
-                    if (trailing != null) {
-                        throw new JsonSourceException("Unexpected content after the records array at " + location()
-                                + ": send exactly one JSON array (or use NDJSON for multiple chunks)", null);
-                    }
-                    return Optional.empty();
-                }
-                if (token == null) {
-                    finished = true;
-                    throw new JsonSourceException("Input ended inside the records array at " + location(), null);
-                }
-                long element = position++;
-                if (token == JsonToken.START_OBJECT) {
-                    JsonNode node = Json.ELEMENT_READER.readTree(parser);
-                    return Optional.of(JsonDataRecord.of(node));
-                }
-                parser.skipChildren();
-                throw new RecordReadException(
-                        "Array element " + element + " is " + describe(token) + ", expected a JSON object", null);
-            } catch (JacksonException e) {
-                finished = true;
-                throw new JsonSourceException("Malformed JSON at " + location() + ": records can't be read further",
-                        e);
+            if (token == null) {
+                throw fail("Input ended inside the records array at " + location(), null);
             }
+            long index = elementIndex++;
+            JsonNode element = Json.ELEMENT_READER.readTree(parser); // also consumes a non-object element
+            if (element == null || !element.isObject()) {
+                throw notAnObject("Array element " + index, element);
+            }
+            return Optional.of(JsonDataRecord.of(element));
+        }
+
+        /**
+         * Anything but whitespace after the array (a second array, stray text) would otherwise be silently dropped.
+         * It's reported instead, after every record of the array has been delivered.
+         */
+        private void requireEndOfInput() {
+            state = State.DONE;
+            if (parser.nextToken() != null) {
+                throw fail("Unexpected content after the records array at " + location()
+                        + ": send exactly one JSON array (or use NDJSON for multiple chunks)", null);
+            }
+        }
+
+        private JsonSourceException fail(String message, Throwable cause) {
+            state = State.DONE;
+            return new JsonSourceException(message, cause);
         }
 
         private String location() {
@@ -132,60 +149,122 @@ public final class JsonRecordSources {
         }
     }
 
+    /**
+     * Splits the input into lines at the byte level and lets Jackson parse each line's bytes. Decoding a line
+     * ourselves (e.g. with an {@code InputStreamReader}) would replace invalid UTF-8 with U+FFFD without telling
+     * anyone and would reject a byte-order mark; Jackson reports the first and accepts the second.
+     */
     private static final class LinesSource implements RecordSource {
-        private final BufferedReader reader;
+        private final InputStream in;
+        private final byte[] buffer = new byte[64 * 1024];
+        private final ByteArrayOutputStream line = new ByteArrayOutputStream();
+        private int position;
+        private int limit;
         private long lineNumber;
 
-        LinesSource(BufferedReader reader) {
-            this.reader = reader;
+        LinesSource(InputStream in) {
+            this.in = in;
         }
 
         @Override
         public Optional<DataRecord> next() {
-            String line;
+            byte[] bytes;
             do {
-                try {
-                    line = reader.readLine();
-                } catch (IOException e) {
-                    throw new UncheckedIOException("Failed to read NDJSON input", e);
-                }
-                if (line == null) {
+                bytes = readLine();
+                if (bytes == null) {
                     return Optional.empty();
                 }
-                lineNumber++;
-            } while (line.isBlank());
+            } while (isBlank(bytes));
 
             JsonNode node;
             try {
-                node = Json.MAPPER.readTree(line);
+                node = Json.MAPPER.readTree(bytes);
             } catch (JacksonException e) {
                 throw new RecordReadException("Line " + lineNumber + " is not valid JSON", e);
             }
             if (node == null || !node.isObject()) {
-                throw new RecordReadException("Line " + lineNumber + " is "
-                        + (node == null ? "empty" : node.getNodeType()) + ", expected a JSON object", null);
+                throw notAnObject("Line " + lineNumber, node);
             }
             return Optional.of(JsonDataRecord.of(node));
+        }
+
+        /** Returns the next line without its {@code \n}, or {@code null} at the end of the input. */
+        private byte[] readLine() {
+            line.reset();
+            boolean any = false;
+            while (true) {
+                if (position == limit && !fill()) {
+                    return any ? endLine() : null;
+                }
+                any = true;
+                int start = position;
+                while (position < limit && buffer[position] != '\n') {
+                    position++;
+                }
+                line.write(buffer, start, position - start);
+                if (position < limit) {
+                    position++; // the '\n'
+                    return endLine();
+                }
+            }
+        }
+
+        private byte[] endLine() {
+            lineNumber++;
+            return line.toByteArray();
+        }
+
+        private boolean fill() {
+            try {
+                limit = in.read(buffer);
+            } catch (IOException e) {
+                throw new UncheckedIOException("Failed to read NDJSON input", e);
+            }
+            position = 0;
+            if (limit < 0) {
+                limit = 0;
+                return false;
+            }
+            return true;
+        }
+
+        /** Whitespace as JSON defines it; a {@code \r} from CRLF line endings is part of it. */
+        private static boolean isBlank(byte[] bytes) {
+            for (byte b : bytes) {
+                if (b != ' ' && b != '\t' && b != '\r') {
+                    return false;
+                }
+            }
+            return true;
         }
 
         @Override
         public void close() {
             try {
-                reader.close();
+                in.close();
             } catch (IOException e) {
                 throw new UncheckedIOException(e);
             }
         }
     }
 
-    private static String describe(JsonToken token) {
-        return switch (token) {
-            case START_ARRAY -> "an array";
-            case VALUE_STRING -> "a string";
-            case VALUE_NUMBER_INT, VALUE_NUMBER_FLOAT -> "a number";
-            case VALUE_TRUE, VALUE_FALSE -> "a boolean";
-            case VALUE_NULL -> "null";
-            default -> token.name();
+    /** One wording for both formats, e.g. "Array element 1 is a number" and "Line 3 is an array". */
+    private static RecordReadException notAnObject(String where, JsonNode node) {
+        return new RecordReadException(where + " is " + describe(node) + ", expected a JSON object", null);
+    }
+
+    private static String describe(JsonNode node) {
+        if (node == null) {
+            return "empty";
+        }
+        return switch (node.getNodeType()) {
+            case ARRAY -> "an array";
+            case STRING -> "a string";
+            case NUMBER -> "a number";
+            case BOOLEAN -> "a boolean";
+            case NULL -> "null";
+            case MISSING -> "empty";
+            default -> node.getNodeType().name().toLowerCase(Locale.ROOT);
         };
     }
 }

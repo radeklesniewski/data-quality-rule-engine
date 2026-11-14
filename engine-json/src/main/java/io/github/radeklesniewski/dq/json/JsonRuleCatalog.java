@@ -24,7 +24,9 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Stream;
 import tools.jackson.core.JacksonException;
+import tools.jackson.core.exc.JacksonIOException;
 import tools.jackson.databind.JsonNode;
 
 /**
@@ -48,8 +50,9 @@ import tools.jackson.databind.JsonNode;
  * }
  * }</pre>
  *
- * <p>{@code countryScope} (default {@code "WORLD"}) and {@code categories} (default none) are optional. Everything
- * else is required, including {@code status}: in a data file it's better stated than defaulted.
+ * <p>{@code countryScope} (default {@code "WORLD"}) and {@code categories} (default none) are optional, and so is a
+ * top-level {@code "description"} for the catalog's authors. Everything else is required, including {@code status}:
+ * in a data file it's better stated than defaulted.
  *
  * <p>Loading is strict and all-or-nothing. Unknown properties (usually typos), invalid enum values, unknown logic
  * ids, duplicate rule ids and invalid rules are all collected and reported together in one
@@ -57,10 +60,11 @@ import tools.jackson.databind.JsonNode;
  */
 public final class JsonRuleCatalog {
 
-    private static final Set<String> ROOT_PROPERTIES = Set.of("rules", "description");
-    private static final Set<String> RULE_PROPERTIES = Set.of(
-            "id", "label", "logic", "status", "severity", "countryScope", "categories", "decisionMapping");
-    private static final Set<String> MAPPING_PROPERTIES = Set.of("mappings", "default");
+    // Sorted, because error messages list them.
+    private static final List<String> ROOT_PROPERTIES = List.of("description", "rules");
+    private static final List<String> RULE_PROPERTIES = List.of(
+            "categories", "countryScope", "decisionMapping", "id", "label", "logic", "severity", "status");
+    private static final List<String> MAPPING_PROPERTIES = List.of("default", "mappings");
 
     private JsonRuleCatalog() {
     }
@@ -72,17 +76,12 @@ public final class JsonRuleCatalog {
      * @param logic resolves the {@code logic} ids
      * @return a fixed catalog
      * @throws CatalogLoadException listing every problem found
+     * @throws UncheckedIOException if the stream can't be read
      */
     public static RuleCatalog load(InputStream in, RuleLogicRegistry logic) {
         Objects.requireNonNull(in, "in");
         Objects.requireNonNull(logic, "logic");
-        JsonNode root;
-        try {
-            root = Json.MAPPER.readTree(in);
-        } catch (JacksonException e) {
-            throw new CatalogLoadException(List.of("Catalog is not valid JSON: " + e.getOriginalMessage()), e);
-        }
-        return RuleCatalog.of(parse(root, logic));
+        return load(in, logic, "rule catalog");
     }
 
     /**
@@ -95,10 +94,12 @@ public final class JsonRuleCatalog {
      * @throws UncheckedIOException if the file can't be read
      */
     public static RuleCatalog load(Path file, RuleLogicRegistry logic) {
+        Objects.requireNonNull(file, "file");
+        Objects.requireNonNull(logic, "logic");
         try (InputStream in = Files.newInputStream(file)) {
-            return load(in, logic);
+            return load(in, logic, "rule catalog " + file);
         } catch (IOException e) {
-            throw new UncheckedIOException("Can't read rule catalog " + file, e);
+            throw cantRead(file, e);
         }
     }
 
@@ -116,6 +117,22 @@ public final class JsonRuleCatalog {
         Objects.requireNonNull(file, "file");
         Objects.requireNonNull(logic, "logic");
         return new WatchingCatalog(file, logic);
+    }
+
+    private static RuleCatalog load(InputStream in, RuleLogicRegistry logic, String source) {
+        JsonNode root;
+        try {
+            root = Json.MAPPER.readTree(in);
+        } catch (JacksonIOException e) {
+            throw Json.ioFailure("Can't read " + source, e);
+        } catch (JacksonException e) {
+            throw new CatalogLoadException(List.of("Catalog is not valid JSON: " + e.getOriginalMessage()), e);
+        }
+        return RuleCatalog.of(new Parser(logic).rules(root));
+    }
+
+    private static UncheckedIOException cantRead(Path file, IOException e) {
+        return new UncheckedIOException("Can't read rule catalog " + file, e);
     }
 
     private static final class WatchingCatalog implements RuleCatalog {
@@ -136,7 +153,7 @@ public final class JsonRuleCatalog {
             try {
                 version = Files.getLastModifiedTime(file);
             } catch (IOException e) {
-                throw new UncheckedIOException("Can't read rule catalog " + file, e);
+                throw cantRead(file, e);
             }
             if (!version.equals(loadedVersion)) {
                 rules = load(file, logic).rules();
@@ -151,189 +168,228 @@ public final class JsonRuleCatalog {
         }
     }
 
-    // ------------------------------------------------------------------ parsing
+    /**
+     * Turns a catalog tree into rules, collecting every problem rather than stopping at the first. Each method
+     * returns empty when its part is missing or invalid, having recorded why; a rule is built only from parts that
+     * are all present. Single use.
+     */
+    private static final class Parser {
+        private final RuleLogicRegistry registry;
+        private final List<String> problems = new ArrayList<>();
 
-    private static List<Rule> parse(JsonNode root, RuleLogicRegistry logic) {
-        List<String> problems = new ArrayList<>();
-        if (root == null || !root.isObject()) {
-            throw new CatalogLoadException(List.of("Catalog must be a JSON object with a \"rules\" array"), null);
-        }
-        unknownProperties(root, ROOT_PROPERTIES, "catalog", problems);
-        JsonNode rulesNode = root.get("rules");
-        if (rulesNode == null || !rulesNode.isArray()) {
-            problems.add("catalog: \"rules\" must be an array");
-            throw new CatalogLoadException(problems, null);
+        Parser(RuleLogicRegistry registry) {
+            this.registry = registry;
         }
 
-        List<Rule> rules = new ArrayList<>();
-        Set<String> ids = new HashSet<>();
-        for (int i = 0; i < rulesNode.size(); i++) {
-            JsonNode node = rulesNode.get(i);
-            String where = "rules[" + i + "]";
-            if (!node.isObject()) {
-                problems.add(where + ": must be an object");
-                continue;
+        List<Rule> rules(JsonNode root) {
+            if (root == null || !root.isObject()) {
+                throw new CatalogLoadException(List.of("Catalog must be a JSON object with a \"rules\" array"), null);
             }
-            String id = text(node, "id", where, problems, true).orElse(null);
-            if (id != null) {
-                where += " '" + id + "'";
-                if (!ids.add(id)) {
-                    problems.add(where + ": duplicate rule id");
+            unknownProperties(root, ROOT_PROPERTIES, "catalog");
+            JsonNode rulesNode = root.get("rules");
+            if (rulesNode == null || !rulesNode.isArray()) {
+                problems.add("catalog: \"rules\" must be an array");
+                throw new CatalogLoadException(problems, null);
+            }
+
+            List<Rule> rules = new ArrayList<>();
+            Set<String> ids = new HashSet<>();
+            for (int i = 0; i < rulesNode.size(); i++) {
+                JsonNode node = rulesNode.get(i);
+                if (node.isObject()) {
+                    rule(node, "rules[" + i + "]", ids).ifPresent(rules::add);
+                } else {
+                    problems.add("rules[" + i + "]: must be an object");
                 }
             }
-            parseRule(node, id, where, logic, problems).ifPresent(rules::add);
-        }
-        if (!problems.isEmpty()) {
-            throw new CatalogLoadException(problems, null);
-        }
-        return rules;
-    }
-
-    private static Optional<Rule> parseRule(JsonNode node, String id, String where, RuleLogicRegistry logic,
-            List<String> problems) {
-        int before = problems.size();
-        unknownProperties(node, RULE_PROPERTIES, where, problems);
-        Optional<String> label = text(node, "label", where, problems, true);
-        Optional<RuleLogic> function = text(node, "logic", where, problems, true).flatMap(logicId -> {
-            Optional<RuleLogic> found = logic.find(logicId);
-            if (found.isEmpty()) {
-                problems.add(where + ": logic '" + logicId + "' is not registered (known: "
-                        + logic.logicIds().stream().sorted().toList() + ")");
+            if (!problems.isEmpty()) {
+                throw new CatalogLoadException(problems, null);
             }
-            return found;
-        });
-        Optional<RuleStatus> status = enumValue(node, "status", RuleStatus.class, where, problems, true);
-        Optional<Severity> severity = enumValue(node, "severity", Severity.class, where, problems, true);
-        Optional<CountryScope> scope = countryScope(node, where, problems);
-        List<String> categories = categories(node, where, problems);
-        Optional<DecisionMapping> mapping = decisionMapping(node.get("decisionMapping"), where, problems);
+            return rules;
+        }
 
-        if (problems.size() > before || id == null) {
-            return Optional.empty();
-        }
-        try {
-            return Optional.of(Rule.builder(id)
-                    .label(label.orElseThrow())
-                    .logic(function.orElseThrow())
-                    .status(status.orElseThrow())
-                    .severity(severity.orElseThrow())
-                    .countryScope(scope.orElse(CountryScope.world()))
-                    .categories(categories)
-                    .decisionMapping(mapping.orElseThrow())
-                    .build());
-        } catch (IllegalArgumentException | NullPointerException e) {
-            problems.add(where + ": " + e.getMessage());
-            return Optional.empty();
-        }
-    }
-
-    private static Optional<DecisionMapping> decisionMapping(JsonNode node, String where, List<String> problems) {
-        String at = where + ".decisionMapping";
-        if (node == null || !node.isObject()) {
-            problems.add(where + ": \"decisionMapping\" is required and must be an object");
-            return Optional.empty();
-        }
-        int before = problems.size();
-        unknownProperties(node, MAPPING_PROPERTIES, at, problems);
-        Optional<Decision> fallback = enumValue(node, "default", Decision.class, at, problems, true);
-        Map<String, Decision> mappings = new LinkedHashMap<>();
-        JsonNode entries = node.get("mappings");
-        if (entries != null && !entries.isObject()) {
-            problems.add(at + ": \"mappings\" must be an object of value → decision");
-        } else if (entries != null) {
-            for (Map.Entry<String, JsonNode> entry : entries.properties()) {
-                parseEnum(entry.getValue(), Decision.class).ifPresentOrElse(
-                        decision -> mappings.put(entry.getKey(), decision),
-                        () -> problems.add(at + ".mappings['" + entry.getKey() + "']: "
-                                + invalidEnum(entry.getValue(), Decision.class)));
+        /** Parses one rule. Problems are located by index, plus the id once it's known: {@code rules[1] 'vatFormat'}. */
+        private Optional<Rule> rule(JsonNode node, String index, Set<String> seenIds) {
+            Optional<String> id = requiredText(node, "id", index);
+            String where = id.map(value -> index + " '" + value + "'").orElse(index);
+            if (id.isPresent() && !seenIds.add(id.get())) {
+                problems.add(where + ": duplicate rule id");
             }
-        }
-        if (problems.size() > before) {
-            return Optional.empty();
-        }
-        return Optional.of(DecisionMapping.of(mappings, fallback.orElseThrow()));
-    }
-
-    private static Optional<CountryScope> countryScope(JsonNode node, String where, List<String> problems) {
-        return text(node, "countryScope", where, problems, false).flatMap(code -> {
+            unknownProperties(node, RULE_PROPERTIES, where);
+            Optional<String> label = requiredText(node, "label", where);
+            Optional<RuleLogic> logic = logic(node, where);
+            Optional<RuleStatus> status = requiredEnum(node, "status", RuleStatus.class, where);
+            Optional<Severity> severity = requiredEnum(node, "severity", Severity.class, where);
+            Optional<CountryScope> scope = countryScope(node, where);
+            Optional<List<String>> categories = categories(node, where);
+            Optional<DecisionMapping> mapping = decisionMapping(node, where);
+            if (Stream.of(id, label, logic, status, severity, scope, categories, mapping).anyMatch(Optional::isEmpty)) {
+                return Optional.empty(); // each missing part has recorded its problem
+            }
             try {
-                return Optional.of(CountryScope.of(code));
-            } catch (IllegalArgumentException e) {
+                return Optional.of(Rule.builder(id.get())
+                        .label(label.get())
+                        .logic(logic.get())
+                        .status(status.get())
+                        .severity(severity.get())
+                        .countryScope(scope.get())
+                        .categories(categories.get())
+                        .decisionMapping(mapping.get())
+                        .build());
+            } catch (IllegalArgumentException e) { // the rule's own validation, e.g. a malformed id
                 problems.add(where + ": " + e.getMessage());
                 return Optional.empty();
             }
-        });
-    }
+        }
 
-    private static List<String> categories(JsonNode node, String where, List<String> problems) {
-        JsonNode categories = node.get("categories");
-        if (categories == null || categories.isNull()) {
-            return List.of();
+        private Optional<RuleLogic> logic(JsonNode node, String where) {
+            return requiredText(node, "logic", where).flatMap(logicId -> {
+                Optional<RuleLogic> found = registry.find(logicId);
+                if (found.isEmpty()) {
+                    problems.add(where + ": logic '" + logicId + "' is not registered (known: "
+                            + registry.logicIds().stream().sorted().toList() + ")");
+                }
+                return found;
+            });
         }
-        if (!categories.isArray()) {
-            problems.add(where + ": \"categories\" must be an array of strings");
-            return List.of();
-        }
-        List<String> result = new ArrayList<>();
-        for (int i = 0; i < categories.size(); i++) {
-            JsonNode category = categories.get(i);
-            if (category.isString()) {
-                result.add(category.stringValue());
-            } else {
-                problems.add(where + ": categories[" + i + "] must be a string");
+
+        /** {@code WORLD} when absent; empty only when present but invalid. */
+        private Optional<CountryScope> countryScope(JsonNode node, String where) {
+            Optional<JsonNode> value = optional(node, "countryScope");
+            if (value.isEmpty()) {
+                return Optional.of(CountryScope.world());
             }
+            return text(value.get(), "countryScope", where).flatMap(code -> {
+                try {
+                    return Optional.of(CountryScope.of(code));
+                } catch (IllegalArgumentException e) {
+                    problems.add(where + ": " + e.getMessage());
+                    return Optional.empty();
+                }
+            });
         }
-        return result;
-    }
 
-    private static Optional<String> text(JsonNode node, String property, String where, List<String> problems,
-            boolean required) {
-        JsonNode value = node.get(property);
-        if (value == null || value.isNull()) {
-            if (required) {
-                problems.add(where + ": \"" + property + "\" is required");
+        /** No categories when absent; empty only when present but invalid. */
+        private Optional<List<String>> categories(JsonNode node, String where) {
+            Optional<JsonNode> value = optional(node, "categories");
+            if (value.isEmpty()) {
+                return Optional.of(List.of());
             }
-            return Optional.empty();
-        }
-        if (!value.isString()) {
-            problems.add(where + ": \"" + property + "\" must be a string");
-            return Optional.empty();
-        }
-        return Optional.of(value.stringValue());
-    }
-
-    private static <E extends Enum<E>> Optional<E> enumValue(JsonNode node, String property, Class<E> type,
-            String where, List<String> problems, boolean required) {
-        JsonNode value = node.get(property);
-        if (value == null || value.isNull()) {
-            if (required) {
-                problems.add(where + ": \"" + property + "\" is required");
+            JsonNode categories = value.get();
+            if (!categories.isArray()) {
+                problems.add(where + ": \"categories\" must be an array of strings");
+                return Optional.empty();
             }
-            return Optional.empty();
+            List<String> result = new ArrayList<>();
+            boolean valid = true;
+            for (int i = 0; i < categories.size(); i++) {
+                JsonNode category = categories.get(i);
+                if (category.isString()) {
+                    result.add(category.stringValue());
+                } else {
+                    problems.add(where + ": categories[" + i + "] must be a string");
+                    valid = false;
+                }
+            }
+            return valid ? Optional.of(result) : Optional.empty();
         }
-        Optional<E> parsed = parseEnum(value, type);
-        if (parsed.isEmpty()) {
-            problems.add(where + ": \"" + property + "\" " + invalidEnum(value, type));
+
+        private Optional<DecisionMapping> decisionMapping(JsonNode node, String where) {
+            JsonNode mapping = node.get("decisionMapping");
+            if (mapping == null || !mapping.isObject()) {
+                problems.add(where + ": \"decisionMapping\" is required and must be an object");
+                return Optional.empty();
+            }
+            String at = where + ".decisionMapping";
+            unknownProperties(mapping, MAPPING_PROPERTIES, at);
+            Optional<Decision> fallback = requiredEnum(mapping, "default", Decision.class, at);
+            Optional<Map<String, Decision>> mappings = mappings(mapping.get("mappings"), at);
+            if (mappings.isEmpty() || fallback.isEmpty()) {
+                return Optional.empty();
+            }
+            return Optional.of(DecisionMapping.of(mappings.get(), fallback.get()));
         }
-        return parsed;
-    }
 
-    private static <E extends Enum<E>> Optional<E> parseEnum(JsonNode value, Class<E> type) {
-        if (!value.isString()) {
-            return Optional.empty();
+        /** No mappings when absent (everything gets the default); empty only when present but invalid. */
+        private Optional<Map<String, Decision>> mappings(JsonNode entries, String at) {
+            if (entries == null) {
+                return Optional.of(Map.of());
+            }
+            if (!entries.isObject()) {
+                problems.add(at + ": \"mappings\" must be an object of value → decision");
+                return Optional.empty();
+            }
+            Map<String, Decision> result = new LinkedHashMap<>();
+            boolean valid = true;
+            for (Map.Entry<String, JsonNode> entry : entries.properties()) {
+                Optional<Decision> decision = parseEnum(entry.getValue(), Decision.class);
+                if (decision.isPresent()) {
+                    result.put(entry.getKey(), decision.get());
+                } else {
+                    problems.add(at + ".mappings['" + entry.getKey() + "']: "
+                            + invalidEnum(entry.getValue(), Decision.class));
+                    valid = false;
+                }
+            }
+            return valid ? Optional.of(result) : Optional.empty();
         }
-        return Arrays.stream(type.getEnumConstants()).filter(e -> e.name().equals(value.stringValue())).findFirst();
-    }
 
-    private static String invalidEnum(JsonNode value, Class<? extends Enum<?>> type) {
-        return "must be one of " + Arrays.toString(type.getEnumConstants()) + ", got " + value;
-    }
+        // -------------------------------------------------------------- property access
 
-    private static void unknownProperties(JsonNode node, Set<String> allowed, String where, List<String> problems) {
-        for (Map.Entry<String, JsonNode> property : node.properties()) {
-            if (!allowed.contains(property.getKey())) {
-                problems.add(where + ": unknown property \"" + property.getKey() + "\" (allowed: "
-                        + allowed.stream().sorted().toList() + ")");
+        /** The property, or empty if it's absent or JSON {@code null}. */
+        private static Optional<JsonNode> optional(JsonNode node, String name) {
+            JsonNode value = node.get(name);
+            return value == null || value.isNull() ? Optional.empty() : Optional.of(value);
+        }
+
+        /** Like {@link #optional}, but an absent property is a problem. */
+        private Optional<JsonNode> required(JsonNode node, String name, String where) {
+            Optional<JsonNode> value = optional(node, name);
+            if (value.isEmpty()) {
+                problems.add(where + ": \"" + name + "\" is required");
+            }
+            return value;
+        }
+
+        private Optional<String> requiredText(JsonNode node, String name, String where) {
+            return required(node, name, where).flatMap(value -> text(value, name, where));
+        }
+
+        private <E extends Enum<E>> Optional<E> requiredEnum(JsonNode node, String name, Class<E> type,
+                String where) {
+            return required(node, name, where).flatMap(value -> {
+                Optional<E> parsed = parseEnum(value, type);
+                if (parsed.isEmpty()) {
+                    problems.add(where + ": \"" + name + "\" " + invalidEnum(value, type));
+                }
+                return parsed;
+            });
+        }
+
+        private Optional<String> text(JsonNode value, String name, String where) {
+            if (!value.isString()) {
+                problems.add(where + ": \"" + name + "\" must be a string");
+                return Optional.empty();
+            }
+            return Optional.of(value.stringValue());
+        }
+
+        private static <E extends Enum<E>> Optional<E> parseEnum(JsonNode value, Class<E> type) {
+            if (!value.isString()) {
+                return Optional.empty();
+            }
+            return Arrays.stream(type.getEnumConstants()).filter(e -> e.name().equals(value.stringValue())).findFirst();
+        }
+
+        private static String invalidEnum(JsonNode value, Class<? extends Enum<?>> type) {
+            return "must be one of " + Arrays.toString(type.getEnumConstants()) + ", got " + value;
+        }
+
+        private void unknownProperties(JsonNode node, List<String> allowed, String where) {
+            for (Map.Entry<String, JsonNode> property : node.properties()) {
+                if (!allowed.contains(property.getKey())) {
+                    problems.add(where + ": unknown property \"" + property.getKey() + "\" (allowed: " + allowed + ")");
+                }
             }
         }
     }

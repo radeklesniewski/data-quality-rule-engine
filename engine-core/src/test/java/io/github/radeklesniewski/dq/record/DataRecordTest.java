@@ -88,4 +88,11 @@ class DataRecordTest {
     void equalByContent() {
         assertThat(DataRecord.ofMap(Map.of("a", "x"))).isEqualTo(DataRecord.ofMap(Map.of("a", "x")));
     }
+
+    @Test
+    void toStringShowsFieldNamesButNeverValues() {
+        DataRecord record = DataRecord.ofMap(Map.of("iban", "DE89370400440532013000"));
+
+        assertThat(record.toString()).contains("iban").doesNotContain("DE89");
+    }
 }
