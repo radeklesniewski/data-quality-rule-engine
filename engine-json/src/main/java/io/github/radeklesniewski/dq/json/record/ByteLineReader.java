@@ -1,4 +1,4 @@
-package io.github.radeklesniewski.dq.json;
+package io.github.radeklesniewski.dq.json.record;
 
 import java.io.ByteArrayOutputStream;
 import java.io.Closeable;

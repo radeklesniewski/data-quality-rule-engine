@@ -1,4 +1,4 @@
-package io.github.radeklesniewski.dq.json;
+package io.github.radeklesniewski.dq.json.catalog;
 
 import io.github.radeklesniewski.dq.rule.Rule;
 import io.github.radeklesniewski.dq.rule.RuleCatalog;
@@ -10,8 +10,8 @@ import java.nio.file.attribute.FileTime;
 import java.util.List;
 
 /**
- * A catalog file that is re-read when its modification time changes; see {@link JsonRuleCatalog#watching}. Only the
- * caching and change detection live here; loading is {@link JsonRuleCatalog#load(Path, RuleLogicRegistry)}'s job.
+ * A catalog file that is re-read when its modification time changes; see {@link JsonRuleCatalogs#watching}. Only the
+ * caching and change detection live here; loading is {@link JsonRuleCatalogs#load(Path, RuleLogicRegistry)}'s job.
  * Thread-safe.
  */
 final class WatchingCatalog implements RuleCatalog {
@@ -32,7 +32,7 @@ final class WatchingCatalog implements RuleCatalog {
     public synchronized List<Rule> rules() {
         FileTime version = modificationTime();
         if (!version.equals(loadedVersion)) {
-            rules = JsonRuleCatalog.load(file, logic).rules();
+            rules = JsonRuleCatalogs.load(file, logic).rules();
             loadedVersion = version; // only after a successful load, so a broken edit is retried next time
         }
         return rules;
@@ -42,12 +42,12 @@ final class WatchingCatalog implements RuleCatalog {
         try {
             return Files.getLastModifiedTime(file);
         } catch (IOException e) {
-            throw JsonRuleCatalog.cantRead(file, e);
+            throw JsonRuleCatalogs.cantRead(file, e);
         }
     }
 
     @Override
     public String toString() {
-        return "JsonRuleCatalog[watching " + file + "]";
+        return "JsonRuleCatalogs.watching(" + file + ")";
     }
 }

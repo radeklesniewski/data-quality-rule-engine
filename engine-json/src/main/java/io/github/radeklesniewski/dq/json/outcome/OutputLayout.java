@@ -1,4 +1,4 @@
-package io.github.radeklesniewski.dq.json;
+package io.github.radeklesniewski.dq.json.outcome;
 
 import io.github.radeklesniewski.dq.RunSummary;
 import tools.jackson.core.JsonGenerator;

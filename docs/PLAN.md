@@ -50,7 +50,7 @@ Priority order follows the brief: **core done well before extended features**.
 ## M5 — JSON adapters (`engine-json`)
 - ☑ `JsonRecordSources.array` (streaming, non-object elements → `RecordError`, syntax error → abort) and
   `JsonRecordSources.lines` (NDJSON, a bad line → `RecordError`). `JsonDataRecord` reads Jackson nodes without copying.
-- ☑ `JsonRuleCatalog`: strict format, every problem reported at once, `watching(path)` reloads between runs.
+- ☑ `JsonRuleCatalogs`: strict format, every problem reported at once, `watching(path)` reloads between runs.
   `RuleLogicRegistry` added to core.
 - ☑ `JsonOutcomeWriter`: streaming `document` (`{"outcomes":[...],"summary":{...}}`) and `lines` (NDJSON) formats.
 - ☑ `Fixtures` moved to `engine-core` test fixtures. `JsonFixtureScenarioTest` runs the brief entirely as JSON.
@@ -91,6 +91,7 @@ Priority order follows the brief: **core done well before extended features**.
   Refactors: catalog `Parser`, `ArraySource` state enum, writer `Layout` enum.
 - ☑ JSON single-responsibility refactor: entry points delegate to package-private helpers (table in ADR-0010).
   Public API unchanged; `ByteLineReaderTest` added.
+- ☑ `engine-json` split into feature packages `record`, `catalog`, `outcome` (+ unexported `internal`), ADR-0011.
 - ☐ JSON review, next (need a decision): package-private exception constructors; one name for the failure field in
   both writer layouts; strict duplicate-key detection for catalogs.
 

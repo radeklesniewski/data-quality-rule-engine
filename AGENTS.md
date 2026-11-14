@@ -44,6 +44,13 @@ Packages in `engine-core`:
 - `io.github.radeklesniewski.dq.select` — `RuleFilter`: composable rule selection (status, country, category, custom).
 - `io.github.radeklesniewski.dq.internal` — implementation. **Not API**: `module-info.java` does not export it.
 
+Packages in `engine-json` (one per concern, ADR-0011; helpers stay package-private inside their package):
+- `io.github.radeklesniewski.dq.json.record` — `JsonRecordSources` (array / NDJSON), `JsonDataRecord`,
+  `JsonSourceException`.
+- `io.github.radeklesniewski.dq.json.catalog` — `JsonRuleCatalogs`, `CatalogLoadException`.
+- `io.github.radeklesniewski.dq.json.outcome` — `JsonOutcomeWriter`.
+- `io.github.radeklesniewski.dq.json.internal` — shared Jackson configuration (`Json`). **Not exported.**
+
 ## Commands
 
 ```bash

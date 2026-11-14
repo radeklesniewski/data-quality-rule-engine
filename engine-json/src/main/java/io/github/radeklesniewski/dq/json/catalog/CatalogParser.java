@@ -1,4 +1,4 @@
-package io.github.radeklesniewski.dq.json;
+package io.github.radeklesniewski.dq.json.catalog;
 
 import io.github.radeklesniewski.dq.rule.CountryScope;
 import io.github.radeklesniewski.dq.rule.Decision;
@@ -20,7 +20,7 @@ import java.util.stream.Stream;
 import tools.jackson.databind.JsonNode;
 
 /**
- * Maps a catalog's JSON tree to rules: the catalog format of {@link JsonRuleCatalog}, and nothing else. Every problem
+ * Maps a catalog's JSON tree to rules: the catalog format of {@link JsonRuleCatalogs}, and nothing else. Every problem
  * is collected rather than stopping at the first. Each part of a rule comes back empty when it's missing or invalid,
  * having recorded why, and a rule is built only from parts that are all present. Single use.
  */
