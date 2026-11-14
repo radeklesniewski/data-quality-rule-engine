@@ -154,12 +154,13 @@ public final class ExampleHttpServer implements AutoCloseable {
     }
 
     /**
-     * Entry point: {@code [--port N] [--catalog file.json] [--max-body-mb N]}; see {@link ServerArguments}.
+     * Entry point: {@code [--port N] [--catalog file.json] [--max-body-mb N]}; see {@link ServerArguments}. Public:
+     * on Java 21 a non-public {@code main} is a preview feature (JEP 445) that the launcher doesn't accept by default.
      *
      * @param args command-line arguments
      * @throws IOException if the port can't be bound
      */
-    static void main(String[] args) throws IOException {
+    public static void main(String[] args) throws IOException {
         ServerArguments arguments = ServerArguments.parse(args);
         RuleCatalog catalog = arguments.catalog()
                 .map(file -> JsonRuleCatalogs.watching(file, ExampleRuleLogic.REGISTRY))

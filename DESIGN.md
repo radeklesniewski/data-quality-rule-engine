@@ -1,6 +1,6 @@
 # Design: Data-Quality Rule Engine
 
-A Java 25 library that validates business-partner records against a catalog of data-quality rules. Hosts (an HTTP
+A Java 21 library that validates business-partner records against a catalog of data-quality rules. Hosts (an HTTP
 API, batch workers, scheduled jobs) embed it. This document explains the shape of the library and the reasons
 behind it. Detailed decision records are in [`docs/adr/`](docs/adr/README.md), and measurements in
 [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md).
@@ -206,9 +206,8 @@ The brief left these open on purpose. What I did about each:
 - Whoever opens a `RecordSource` closes it. The engine doesn't.
 - `null` and a missing field can't be told apart in provenance (both are absent). That's deliberate (ADR-0008),
   because rules shouldn't behave differently for the two.
-- The build targets Java 25 through a Gradle toolchain (downloaded automatically when missing). The brief asks for
-  "21 or later". The code only uses Java 21 features and compiles with `--release 21` (verified in review), so
-  lowering the toolchain is a one-line change (§10).
+- The build targets Java 21 through a Gradle toolchain (downloaded automatically when missing), as the brief asks
+  (ADR-0012). Tests run on a Java 21 runtime.
 
 ## 9. Trade-offs under the time-box
 
@@ -244,7 +243,7 @@ medium (M) changes, listed in the order I'd do them.
 | 3 | No limit on the size of a single record or NDJSON line, and HTTP has no read/write timeouts or cap on concurrent requests (the body size *is* limited, `413`). | One huge record or many slow clients can exhaust memory or threads. | Jackson `StreamReadConstraints` (max document or element size), a max line length for NDJSON, server timeouts, a request semaphore. | S–M |
 | 4 | `DataRecord.ofMap` deep-copies maps and lists but keeps other values as given, so a mutable object (e.g. `StringBuilder`) can be changed by rule logic. `JsonDataRecord` doesn't copy its node (documented). | Immutability is enforced for the JSON value model only. | Accept only the JSON value model in `ofMap`, or document the requirement in its Javadoc. | S |
 | 5 | Each parallel HTTP request creates its own worker pool. (Fixed: an unknown `format` is now a `400`, and the misleading comment about a cap is gone.) | Many concurrent parallel requests multiply threads. | Share one pool, or cap concurrent parallel requests. | S |
-| 6 | Toolchain is Java 25 although the code compiles with `--release 21`. | A reviewer with only JDK 21 and no network can't build. | Set the toolchain to 21. | S |
+| 6 | **Fixed.** The toolchain was Java 25, and the example's package-private `main` couldn't be launched on Java 21. Now the toolchain is 21 and `main` is public (ADR-0012). | The project builds, tests and runs on Java 21, as the brief asks. | Done. | — |
 | 7 | `org.gradle.caching=true` makes a repeated `./gradlew clean test` restore results from the build cache (`FROM-CACHE`) instead of running tests. | Easy to believe tests ran when they didn't. A fresh clone isn't affected. | Use `--no-build-cache`/`--rerun-tasks` when verifying (README), or disable caching for `Test` tasks. | S |
 | 8 | Missing evidence: no test runs one `ValidationEngine` from several threads at once (thread safety follows from immutability but isn't tested). `JsonRuleCatalogs.watching` detects changes by modification time only. One selection test uses a static counter. | Claims that hold today but aren't pinned by tests. | A concurrent-runs test, content hashing in `watching`, an instance counter in the test. | S |
 

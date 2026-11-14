@@ -5,7 +5,7 @@ One file per decision: `NNNN-short-title.md`. Never delete an ADR. Supersede it 
 
 | #    | Title                                         | Status   |
 |------|-----------------------------------------------|----------|
-| 0001 | [Java 25 toolchain](0001-java-25.md)           | Accepted |
+| 0001 | [Java 25 toolchain](0001-java-25.md)           | Superseded by 0012 |
 | 0002 | [Multi-module layout](0002-multi-module.md)     | Accepted |
 | 0003 | [Jackson + JDK HttpServer](0003-jackson-jdk-httpserver.md) | Accepted |
 | 0004 | [Rule logic in Java, catalog as data](0004-rule-definition.md) | Accepted |
@@ -16,6 +16,7 @@ One file per decision: `NNNN-short-title.md`. Never delete an ADR. Supersede it 
 | 0009 | [Rule selection: composable filters that can only narrow](0009-rule-selection.md) | Accepted |
 | 0010 | [JSON adapters: input, catalog and output formats](0010-json-formats.md) | Accepted |
 | 0011 | [engine-json: one package per concern](0011-engine-json-packages.md) | Accepted |
+| 0012 | [Java 21 toolchain](0012-java-21-toolchain.md) | Accepted |
 
 ## Template
 

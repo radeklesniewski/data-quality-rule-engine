@@ -36,6 +36,8 @@ input isn't parsed, so this measures the engine itself: selection, isolation, pr
 - `realistic`: 30 rules. These are the 3 fixture rules, an IBAN mod-97 checksum (BigInteger), and 26 regex rules
   over 5 fields, including a nested one.
 
+Measured before the toolchain moved to Java 21 (ADR-0012); not re-run on 21.
+
 Machine: AMD Ryzen 7 9800X3D (8 cores / 16 threads), OpenJDK 25.0.1, default JMH heap, parallelism = 16,
 in-flight batches = 32. 2×2 s warm-up, 3×2 s measurement, 1 fork. Numbers are rounded.
 

@@ -11,10 +11,9 @@ decision comes from a declarative mapping. Faults are isolated per rule and reco
 
 ## Requirements
 
-JDK 25. The Gradle wrapper is included. If JDK 25 isn't installed, Gradle downloads it automatically
+JDK 21 (ADR-0012). The Gradle wrapper is included. If JDK 21 isn't installed, Gradle downloads it automatically
 (foojay toolchain resolver, which needs network access). If `java` isn't on your `PATH`, point `JAVA_HOME` at any
-JDK (17+) to run Gradle itself. The code only uses Java 21 features and compiles with `--release 21`. Offline with
-only JDK 21, change `java = "25"` to `"21"` in `gradle/libs.versions.toml`.
+JDK (17+) to run Gradle itself.
 
 ## Build and test
 

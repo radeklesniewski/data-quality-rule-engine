@@ -5,7 +5,7 @@ Priority order follows the brief: **core done well before extended features**.
 
 ## M0 — Project setup
 - ☑ Rename branch `master` → `main`, untrack `.idea/`, initial commits.
-- ☑ Multi-module Gradle: `engine-core`, `engine-json`, `example-http`. Java 25 toolchain (foojay resolver),
+- ☑ Multi-module Gradle: `engine-core`, `engine-json`, `example-http`. Java 25 toolchain, since lowered to 21 (ADR-0012; foojay resolver),
   convention plugins in `buildSrc` (`dq.java-conventions`, `dq.library-conventions`), version catalog `gradle/libs.versions.toml`.
 - ☑ JUnit 5 + AssertJ + JaCoCo wired. IntelliJ `Main.java` placeholder removed.
 - ◐ `module-info.java` for `engine-core` declared. Exports are added in M1 as the API packages gain types

@@ -17,7 +17,7 @@ A smaller slice done well is better than a broad, shaky one.
 
 | Concern        | Choice                                                            |
 |----------------|-------------------------------------------------------------------|
-| Language       | Java 25 (Gradle toolchain), ADR-0001                              |
+| Language       | Java 21 (Gradle toolchain), ADR-0012; no Java 22+ features        |
 | Build          | Gradle 9.x wrapper, Groovy DSL, multi-module, ADR-0002            |
 | JSON           | Jackson (streaming `JsonParser` for input), **only outside core** |
 | HTTP example   | JDK `com.sun.net.httpserver.HttpServer`, no web framework         |
@@ -64,7 +64,8 @@ Packages in `engine-json` (one per concern, ADR-0011; helpers stay package-priva
 ./gradlew :example-http:run           # demo API on :8080 (--args="--port N --catalog file.json")
 ```
 
-The build needs JDK 25. If `java` is not on PATH, set `JAVA_HOME` (locally `~/.jdks/openjdk-25.0.1`).
+The build targets JDK 21; Gradle downloads it into `~/.gradle/jdks` if missing. Gradle itself runs on any JDK 17+
+(locally `JAVA_HOME=~/.jdks/openjdk-25.0.1`). Don't use Java 22+ features such as `_` or a non-public `main`.
 
 Build layout: shared config is in the `buildSrc` convention plugins (`dq.java-conventions` for every module,
 `dq.library-conventions` for published libraries). All versions live in `gradle/libs.versions.toml`, so don't
