@@ -32,8 +32,7 @@ public final class TrackingRecordView implements RecordView {
     @Override
     public Optional<Object> get(String path) {
         FieldPaths.requireValid(path);
-        Optional<Object> value = Objects.requireNonNull(record.get(path),
-                () -> "DataRecord.get must not return null (path '" + path + "'); return Optional.empty() instead");
+        Optional<Object> value = RecordFields.read(record, path);
         reads.putIfAbsent(path, value);
         return value;
     }

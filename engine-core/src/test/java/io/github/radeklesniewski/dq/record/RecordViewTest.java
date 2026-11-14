@@ -46,4 +46,13 @@ class RecordViewTest {
     void validatesPaths() {
         assertThatThrownBy(() -> view.get("a..b")).isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void nonTrackingViewRejectsHostRecordReturningNullLikeTheEngineDoes() {
+        RecordView view = RecordView.of(path -> null);
+
+        assertThatThrownBy(() -> view.has("x"))
+                .isInstanceOf(NullPointerException.class)
+                .hasMessage("DataRecord.get must not return null (path 'x'); return Optional.empty() instead");
+    }
 }

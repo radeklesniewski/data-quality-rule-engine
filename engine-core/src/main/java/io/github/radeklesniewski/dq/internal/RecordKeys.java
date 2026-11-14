@@ -4,7 +4,6 @@ import io.github.radeklesniewski.dq.record.DataRecord;
 import io.github.radeklesniewski.dq.record.FieldTypeException;
 import io.github.radeklesniewski.dq.record.MissingFieldException;
 import java.math.BigDecimal;
-import java.util.Objects;
 import java.util.Optional;
 
 /**
@@ -22,20 +21,20 @@ public record RecordKeys(String idField, String countryField) {
     }
 
     /**
-     * Returns the record id: a non-blank string, or a number rendered in plain notation.
+     * Returns the record id: a non-blank string, or a number rendered in plain notation (never with an exponent,
+     * whatever its Java type: {@code 1.2345678E7} becomes {@code "12345678"}).
      *
      * @param record the record
      * @return the id
      * @throws MissingFieldException if absent
      * @throws FieldTypeException if neither a string nor a number
-     * @throws IllegalArgumentException if blank
+     * @throws IllegalArgumentException if blank, or a number that isn't finite
      */
     public String id(DataRecord record) {
-        Object value = present(record, idField).orElseThrow(() -> new MissingFieldException(idField));
+        Object value = RecordFields.read(record, idField).orElseThrow(() -> new MissingFieldException(idField));
         String id = switch (value) {
             case String s -> s;
-            case BigDecimal d -> d.toPlainString();
-            case Number n -> n.toString();
+            case Number n -> plain(n);
             default -> throw new FieldTypeException(idField, String.class, value.getClass());
         };
         if (id.isBlank()) {
@@ -52,7 +51,7 @@ public record RecordKeys(String idField, String countryField) {
      * @throws FieldTypeException if present but not a string
      */
     public Optional<String> country(DataRecord record) {
-        return present(record, countryField).map(value -> {
+        return RecordFields.read(record, countryField).map(value -> {
             if (value instanceof String s) {
                 return s;
             }
@@ -60,8 +59,15 @@ public record RecordKeys(String idField, String countryField) {
         });
     }
 
-    private static Optional<Object> present(DataRecord record, String path) {
-        return Objects.requireNonNull(record.get(path),
-                () -> "DataRecord.get must not return null (path '" + path + "'); return Optional.empty() instead");
+    /** One rendering for every numeric type, via its decimal value; {@code Double.toString} would use exponents. */
+    private String plain(Number number) {
+        if (number instanceof BigDecimal decimal) {
+            return decimal.toPlainString();
+        }
+        try {
+            return new BigDecimal(number.toString()).toPlainString();
+        } catch (NumberFormatException e) { // NaN, Infinity, or a custom Number type without a decimal rendering
+            throw new IllegalArgumentException("Record id field '" + idField + "' is not a finite number", e);
+        }
     }
 }

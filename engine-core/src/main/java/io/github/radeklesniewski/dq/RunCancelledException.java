@@ -16,7 +16,7 @@ public final class RunCancelledException extends RuntimeException {
     @Serial
     private static final long serialVersionUID = 1L;
 
-    private final transient RunSummary partialSummary;
+    private final RunSummary partialSummary; // serializable, so it survives with the exception
 
     /**
      * Creates the exception.

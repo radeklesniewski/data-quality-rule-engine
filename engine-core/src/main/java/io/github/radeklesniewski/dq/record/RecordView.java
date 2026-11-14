@@ -1,6 +1,7 @@
 package io.github.radeklesniewski.dq.record;
 
 import io.github.radeklesniewski.dq.internal.FieldPaths;
+import io.github.radeklesniewski.dq.internal.RecordFields;
 import java.util.Objects;
 import java.util.Optional;
 
@@ -89,6 +90,6 @@ public interface RecordView {
      */
     static RecordView of(DataRecord record) {
         Objects.requireNonNull(record, "record");
-        return path -> record.get(FieldPaths.requireValid(path));
+        return path -> RecordFields.read(record, FieldPaths.requireValid(path));
     }
 }

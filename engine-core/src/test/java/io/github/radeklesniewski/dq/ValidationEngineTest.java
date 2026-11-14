@@ -255,6 +255,24 @@ class ValidationEngineTest {
         }
 
         @Test
+        void exceptionWhoseGetMessageThrowsIsStillIsolated() {
+            Rule nasty = rule("nasty", r -> {
+                throw new BrokenMessageException();
+            }).build();
+            DataRecord nastyRecord = path -> {
+                throw new BrokenMessageException();
+            };
+
+            CollectingSink sink = run(List.of(record("a", "DE"), nastyRecord, record("b", "DE")), nasty);
+
+            assertThat(sink.errors()).hasSize(3).allSatisfy(e -> assertThat(e.message())
+                    .isEqualTo(BrokenMessageException.class.getName()
+                            + " (its getMessage() threw java.lang.IllegalStateException)"));
+            assertThat(sink.errors()).extracting(Outcome::recordIndex).containsExactly(0L, 1L, 2L);
+            assertThat(sink.errors().get(1)).isInstanceOf(RecordError.class);
+        }
+
+        @Test
         void sinkFailureAbortsTheRunAndStopsReading() {
             CountingSource source = new CountingSource(records(10));
 
@@ -304,9 +322,35 @@ class ValidationEngineTest {
         }
 
         @Test
+        void numericIdsAreRenderedInPlainNotationWhateverTheirType() {
+            CollectingSink sink = run(List.of(
+                    DataRecord.ofMap(Map.of("id", 12_345_678.0)),
+                    DataRecord.ofMap(Map.of("id", 1.5e-7)),
+                    DataRecord.ofMap(Map.of("id", 12.0f)),
+                    DataRecord.ofMap(Map.of("id", Double.NaN))), released("a"));
+
+            assertThat(sink.results()).extracting(Result::recordId)
+                    .containsExactly("12345678", "0.00000015", "12.0");
+            assertThat(sink.errors()).singleElement().satisfies(e -> {
+                assertThat(e).isInstanceOf(RecordError.class);
+                assertThat(e.message()).isEqualTo("Record id field 'id' is not a finite number");
+            });
+        }
+
+        @Test
         void rejectsMalformedFieldPaths() {
             assertThatThrownBy(() -> ValidationEngine.builder().idField("a..b"))
                     .isInstanceOf(IllegalArgumentException.class);
+        }
+    }
+
+    /** An exception from third-party code whose {@code getMessage()} itself fails. */
+    private static final class BrokenMessageException extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+
+        @Override
+        public String getMessage() {
+            throw new IllegalStateException("getMessage broke");
         }
     }
 

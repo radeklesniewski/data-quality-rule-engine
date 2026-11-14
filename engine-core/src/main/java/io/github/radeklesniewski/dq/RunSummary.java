@@ -2,6 +2,8 @@ package io.github.radeklesniewski.dq;
 
 import io.github.radeklesniewski.dq.rule.Decision;
 import io.github.radeklesniewski.dq.rule.Severity;
+import java.io.Serial;
+import java.io.Serializable;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.Map;
@@ -18,6 +20,8 @@ import java.util.Objects;
  * <p>Errors aren't results: they're counted in {@link #ruleErrorCount()} and {@link #recordErrorCount()} only.
  * Counters are incremented just before an outcome is handed to the sink. If the sink throws, the run aborts and no
  * summary is returned, so the counts and the delivered outcomes can't diverge.
+ *
+ * <p>Serializable, so a {@link RunCancelledException} keeps its partial summary when it crosses a process boundary.
  *
  * @param rulesSelected rules that took part: RELEASED and selected by the run's filter. 0 means nothing could run
  * @param recordsRead records taken from the source, including unreadable ones
@@ -36,7 +40,10 @@ public record RunSummary(
         long ruleErrorCount,
         long recordErrorCount,
         Map<Decision, Long> resultsByDecision,
-        Map<Severity, Long> resultsBySeverity) {
+        Map<Severity, Long> resultsBySeverity) implements Serializable {
+
+    @Serial
+    private static final long serialVersionUID = 1L;
 
     /** Validates components and completes and copies the breakdowns. */
     public RunSummary {

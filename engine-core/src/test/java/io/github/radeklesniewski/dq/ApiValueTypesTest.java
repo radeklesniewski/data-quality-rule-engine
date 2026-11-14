@@ -6,6 +6,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import io.github.radeklesniewski.dq.rule.Decision;
 import io.github.radeklesniewski.dq.rule.Severity;
 import io.github.radeklesniewski.dq.select.RuleFilter;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.ObjectInputStream;
+import java.io.ObjectOutputStream;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
@@ -116,5 +120,32 @@ class ApiValueTypesTest {
         assertThatThrownBy(() -> RunOptions.builder().maxInFlightBatches(0))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> RunOptions.builder().executionMode(null)).isInstanceOf(NullPointerException.class);
+    }
+
+    @Test
+    void toBuilderKeepsDerivedDefaultsDerived() {
+        RunOptions wide = RunOptions.builder().parallelism(16).build();
+        RunOptions narrow = wide.toBuilder().parallelism(2).build();
+        RunOptions pinned = RunOptions.builder().parallelism(16).maxInFlightBatches(5).build()
+                .toBuilder().parallelism(2).build();
+
+        assertThat(wide.maxInFlightBatches()).isEqualTo(32);
+        assertThat(narrow.maxInFlightBatches()).as("derived from the new parallelism").isEqualTo(4);
+        assertThat(pinned.maxInFlightBatches()).as("an explicit choice is kept").isEqualTo(5);
+    }
+
+    @Test
+    void cancellationKeepsItsPartialSummaryThroughSerialization() throws Exception {
+        RunSummary summary = new RunSummary(1, 2, 1, 1, 0, 0, Map.of(Decision.VALID, 1L), Map.of(Severity.ERROR, 1L));
+        ByteArrayOutputStream bytes = new ByteArrayOutputStream();
+        try (ObjectOutputStream out = new ObjectOutputStream(bytes)) {
+            out.writeObject(new RunCancelledException(summary, null));
+        }
+        RunCancelledException copy;
+        try (ObjectInputStream in = new ObjectInputStream(new ByteArrayInputStream(bytes.toByteArray()))) {
+            copy = (RunCancelledException) in.readObject();
+        }
+
+        assertThat(copy.partialSummary()).isEqualTo(summary);
     }
 }
