@@ -14,16 +14,18 @@ final class SequentialRun {
     private final BatchReader reader;
     private final RecordEvaluator evaluator;
     private final Emitter emitter;
+    private final Cancellation cancellation;
 
-    SequentialRun(BatchReader reader, RecordEvaluator evaluator, Emitter emitter) {
-        this.reader = reader;
-        this.evaluator = evaluator;
-        this.emitter = emitter;
+    SequentialRun(RunContext run) {
+        this.reader = run.reader();
+        this.evaluator = run.evaluator();
+        this.emitter = run.emitter();
+        this.cancellation = run.cancellation();
     }
 
     RunSummary execute() {
         while (true) {
-            emitter.throwIfCancelled();
+            cancellation.throwIfRequested();
             List<BatchItem> batch = reader.next();
             if (batch.isEmpty()) {
                 return emitter.summary();

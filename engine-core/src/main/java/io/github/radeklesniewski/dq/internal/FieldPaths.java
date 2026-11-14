@@ -18,8 +18,8 @@ public final class FieldPaths {
     public static String requireValid(String path) {
         Objects.requireNonNull(path, "path");
         if (path.isBlank() || path.startsWith(".") || path.endsWith(".") || path.contains("..")) {
-            throw new IllegalArgumentException(
-                    "Invalid field path '" + path + "': expected non-empty dot-separated segments, e.g. 'address.city'");
+            throw new IllegalArgumentException("Invalid field path '" + path
+                    + "': expected non-empty dot-separated segments, e.g. 'address.city'");
         }
         return path;
     }

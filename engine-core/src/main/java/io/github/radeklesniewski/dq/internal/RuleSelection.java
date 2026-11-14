@@ -25,16 +25,21 @@ final class RuleSelection {
     static List<Rule> executable(RuleCatalog catalog, RuleFilter filter) {
         Objects.requireNonNull(filter, "filter");
         List<Rule> all = Objects.requireNonNull(catalog.rules(), "RuleCatalog.rules() returned null");
+        requireUniqueIds(all);
+        return all.stream()
+                .filter(filter::matches)
+                .filter(rule -> rule.status() == RuleStatus.RELEASED)
+                .toList();
+    }
+
+    /** The catalog's integrity check: no null rules, no duplicate ids. Runs before any filter or record. */
+    private static void requireUniqueIds(List<Rule> rules) {
         Set<String> ids = new HashSet<>();
-        for (Rule rule : all) {
+        for (Rule rule : rules) {
             Objects.requireNonNull(rule, "RuleCatalog.rules() contains a null rule");
             if (!ids.add(rule.id())) {
                 throw new IllegalArgumentException("Duplicate rule id in catalog: '" + rule.id() + "'");
             }
         }
-        return all.stream()
-                .filter(filter::matches)
-                .filter(rule -> rule.status() == RuleStatus.RELEASED)
-                .toList();
     }
 }

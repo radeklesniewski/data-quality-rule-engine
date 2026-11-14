@@ -7,6 +7,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.function.LongFunction;
 
 /**
  * Pulls records from a {@link RecordSource} in batches and assigns their input positions. It only runs on the run's
@@ -40,40 +41,56 @@ final class BatchReader {
      * @throws RuntimeException the source's fatal failure, once all records read before it were returned
      */
     List<BatchItem> next() {
+        throwDeferredFailure();
+        if (exhausted) {
+            return List.of();
+        }
+        List<BatchItem> batch = new ArrayList<>(Math.min(batchSize, MAX_INITIAL_CAPACITY));
+        while (batch.size() < batchSize && !exhausted && deferredFailure == null) {
+            readOne(batch.isEmpty()).ifPresent(batch::add);
+        }
+        return batch;
+    }
+
+    /** Throws a fatal failure held back by the previous call, after which the source counts as exhausted. */
+    private void throwDeferredFailure() {
         if (deferredFailure != null) {
             RuntimeException failure = deferredFailure;
             deferredFailure = null;
             exhausted = true;
             throw failure;
         }
-        if (exhausted) {
-            return List.of();
-        }
-        List<BatchItem> batch = new ArrayList<>(Math.min(batchSize, MAX_INITIAL_CAPACITY));
-        while (batch.size() < batchSize) {
-            BatchItem item;
-            try {
-                Optional<DataRecord> next = Objects.requireNonNull(source.next(),
-                        "RecordSource.next() must not return null; return Optional.empty() at the end");
-                if (next.isEmpty()) {
-                    exhausted = true;
-                    break;
-                }
-                item = new BatchItem.Readable(nextIndex, next.get());
-            } catch (RecordReadException e) {
-                item = new BatchItem.Unreadable(nextIndex, e);
-            } catch (RuntimeException fatal) {
-                if (batch.isEmpty()) {
-                    exhausted = true;
-                    throw fatal;
-                }
-                deferredFailure = fatal;
-                break;
+    }
+
+    /**
+     * Reads one slot: a record, or an unreadable record. Empty at the end of the input, or when a fatal failure was
+     * deferred because the batch already holds records that must be validated first.
+     */
+    private Optional<BatchItem> readOne(boolean batchIsEmpty) {
+        Optional<DataRecord> next;
+        try {
+            next = Objects.requireNonNull(source.next(),
+                    "RecordSource.next() must not return null; return Optional.empty() at the end");
+        } catch (RecordReadException e) {
+            return Optional.of(take(index -> new BatchItem.Unreadable(index, e)));
+        } catch (RuntimeException fatal) {
+            if (batchIsEmpty) {
+                exhausted = true;
+                throw fatal;
             }
-            nextIndex++;
-            summary.recordRead();
-            batch.add(item);
+            deferredFailure = fatal;
+            return Optional.empty();
         }
-        return batch;
+        if (next.isEmpty()) {
+            exhausted = true;
+            return Optional.empty();
+        }
+        return Optional.of(take(index -> new BatchItem.Readable(index, next.get())));
+    }
+
+    /** Gives the item the next input position and counts it as read. */
+    private BatchItem take(LongFunction<BatchItem> item) {
+        summary.recordRead();
+        return item.apply(nextIndex++);
     }
 }
