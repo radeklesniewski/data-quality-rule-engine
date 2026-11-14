@@ -74,3 +74,10 @@ None of them changes the decision above.
   For a synchronous API the simple alternative is a small request cap (e.g. 10k records) buffered in memory, with
   larger batches going through the batch path. Another is memory up to a threshold and disk beyond it, as servlet
   multipart handling does.
+- **Request handling after the cleanup (2026-11-14).** Every endpoint goes through one `handle()` method: exact path
+  or `404` (the JDK server matches contexts by prefix, so `/validatefoo` used to reach `/validate`), the right method
+  or `405` with `Allow`, and `HttpError` (status plus a client-safe message) for anything refused before streaming.
+  Cheap checks come first: parameters and `Content-Type` (`400`, `415`), then the catalog (`500`), then storing the
+  body (`413`, `500`). `Format` owns the wire formats, including `Accept` negotiation with lists and `q` weights;
+  `?format=` is strict and wins over `Accept`. Without a supported type in `Accept`, the server answers in its
+  default, JSON, rather than `406`. `SpooledBody` owns the temporary file, and `ServerArguments` the command line.

@@ -133,6 +133,28 @@ class ExampleHttpServerTest {
         }
 
         @Test
+        void acceptListWithQualitiesChoosesTheResponseFormat() throws Exception {
+            HttpResponse<String> response = CLIENT.send(HttpRequest.newBuilder(uri(fixtureServer, "/validate"))
+                    .header("Content-Type", "application/json")
+                    .header("Accept", "application/json;q=0.5, application/x-ndjson")
+                    .POST(HttpRequest.BodyPublishers.ofString(FIXTURE_RECORDS)).build(),
+                    HttpResponse.BodyHandlers.ofString());
+
+            assertThat(response.headers().firstValue("Content-Type")).contains("application/x-ndjson");
+            assertThat(response.body().lines()).hasSize(10);
+        }
+
+        @Test
+        void enumAndBooleanParametersIgnoreCase() throws Exception {
+            HttpResponse<String> response = post(bundledServer,
+                    "/validate?mode=parallel_ordered&status=released&emitOutOfScope=TRUE&format=NDJSON",
+                    "application/json", FIXTURE_RECORDS);
+
+            assertThat(response.statusCode()).isEqualTo(200);
+            assertThat(response.headers().firstValue("Content-Type")).contains("application/x-ndjson");
+        }
+
+        @Test
         void badRecordsAreReportedAndTheRestIsValidated() throws Exception {
             HttpResponse<String> response = post(fixtureServer, "/validate", "application/json", """
                     [ {"id": "a", "vatId": "DE111111111", "country": "DE", "iban": "DE1"},
@@ -282,6 +304,14 @@ class ExampleHttpServerTest {
         }
 
         @Test
+        void rulesAreSentWithAContentLength() throws Exception {
+            HttpResponse<String> response = get(bundledServer, "/rules");
+
+            assertThat(response.headers().firstValueAsLong("Content-Length"))
+                    .hasValue(response.body().getBytes(UTF_8).length);
+        }
+
+        @Test
         void listsRulesWithTheSameFilters() throws Exception {
             JsonNode all = JSON.readTree(get(bundledServer, "/rules").body());
             JsonNode tax = JSON.readTree(get(bundledServer, "/rules?category=tax").body());
@@ -298,7 +328,8 @@ class ExampleHttpServerTest {
 
         @ParameterizedTest
         @ValueSource(strings = {"mode=FAST", "batchSize=0", "batchSize=abc", "batchSize=1000000", "country=Germany",
-                "status=LIVE", "unknown=1", "category=a&category=b", "emitOutOfScope=maybe"})
+                "status=LIVE", "unknown=1", "category=a&category=b", "emitOutOfScope=maybe", "format=xml", "status=",
+                "category=,"})
         void invalidParametersAreRejectedBeforeReadingTheBody(String query) throws Exception {
             HttpResponse<String> response = post(fixtureServer, "/validate?" + query, "application/json", "[]");
 
@@ -346,6 +377,24 @@ class ExampleHttpServerTest {
                             .isEqualTo("Rule catalog can't be loaded; see server log");
                 }
             }
+        }
+
+        @Test
+        void onlyTheExactPathIsServed() throws Exception {
+            assertThat(get(fixtureServer, "/healthz").statusCode()).isEqualTo(404);
+            assertThat(get(fixtureServer, "/health/deep").statusCode()).isEqualTo(404);
+            assertThat(post(fixtureServer, "/validate/extra", "application/json", FIXTURE_RECORDS).statusCode())
+                    .isEqualTo(404);
+        }
+
+        @Test
+        void healthAndRulesCheckTheirMethodToo() throws Exception {
+            HttpResponse<String> postHealth = post(fixtureServer, "/health", "application/json", "{}");
+            HttpResponse<String> postRules = post(fixtureServer, "/rules", "application/json", "{}");
+
+            assertThat(postHealth.statusCode()).isEqualTo(405);
+            assertThat(postHealth.headers().firstValue("Allow")).contains("GET");
+            assertThat(postRules.statusCode()).isEqualTo(405);
         }
 
         @Test

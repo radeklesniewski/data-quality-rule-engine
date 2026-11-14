@@ -6,12 +6,10 @@ import io.github.radeklesniewski.dq.RunSummary;
 import io.github.radeklesniewski.dq.ValidationEngine;
 import io.github.radeklesniewski.dq.json.catalog.JsonRuleCatalogs;
 import io.github.radeklesniewski.dq.json.outcome.JsonOutcomeWriter;
-import io.github.radeklesniewski.dq.json.record.JsonRecordSources;
 import io.github.radeklesniewski.dq.json.record.JsonSourceException;
 import io.github.radeklesniewski.dq.record.RecordSource;
 import io.github.radeklesniewski.dq.rule.Rule;
 import io.github.radeklesniewski.dq.rule.RuleCatalog;
-import io.github.radeklesniewski.dq.select.RuleFilter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -19,16 +17,14 @@ import java.io.UncheckedIOException;
 import java.lang.System.Logger.Level;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import tools.jackson.core.JsonGenerator;
 import tools.jackson.databind.json.JsonMapper;
 
 /**
@@ -54,9 +50,11 @@ import tools.jackson.databind.json.JsonMapper;
  * response ends with an {@code "error"} and has no {@code "summary"}. Clients must treat a response without a summary
  * as incomplete.
  *
- * <p>Server-side failures that happen before streaming starts (an unreadable or invalid catalog, a temporary file
- * that can't be written) are logged and answered with {@code 500}. Only I/O failures on the connection itself are
- * treated as the client having gone away.
+ * <p>Every endpoint answers only its exact path ({@code 404} otherwise) and its method ({@code 405} with
+ * {@code Allow} otherwise). Problems found before streaming starts are a proper error response: {@code 400}
+ * (parameters), {@code 413} (body too large), {@code 415} (content type), {@code 500} (an unreadable or invalid
+ * catalog, a temporary file that can't be written; logged with the cause). Only I/O failures on the connection itself
+ * count as the client having gone away, and are logged at {@code DEBUG}.
  *
  * <p>Run: {@code ./gradlew :example-http:run --args="--port 8080 --catalog path/to/catalog.json --max-body-mb 1024"}.
  * All arguments are optional. The bundled {@code example-catalog.json} and a 1 GiB body limit are the defaults.
@@ -64,13 +62,10 @@ import tools.jackson.databind.json.JsonMapper;
 public final class ExampleHttpServer implements AutoCloseable {
 
     private static final System.Logger LOG = System.getLogger(ExampleHttpServer.class.getName());
-    private static final String JSON = "application/json";
-    private static final String NDJSON = "application/x-ndjson";
     private static final JsonMapper MAPPER = JsonMapper.builder().build();
 
     /** Default limit for a request body: 1 GiB, roughly 10 million partner records. */
     public static final long DEFAULT_MAX_BODY_BYTES = 1024L * 1024 * 1024;
-    private static final int DEFAULT_PORT = 8080;
 
     private final HttpServer server;
     private final ExecutorService executor;
@@ -87,12 +82,12 @@ public final class ExampleHttpServer implements AutoCloseable {
         }
         this.maxBodyBytes = maxBodyBytes;
         this.spoolDir = Objects.requireNonNull(spoolDir, "spoolDir");
+        this.server = HttpServer.create(address, 0); // bind first: if it fails, there's no executor to leak
         this.executor = Executors.newVirtualThreadPerTaskExecutor();
-        this.server = HttpServer.create(address, 0);
         server.setExecutor(executor);
-        server.createContext("/validate", this::validate);
-        server.createContext("/rules", this::rules);
-        server.createContext("/health", exchange -> respond(exchange, 200, "{\"status\":\"UP\"}"));
+        route("/validate", "POST", this::validate);
+        route("/rules", "GET", this::rules);
+        route("/health", "GET", exchange -> respond(exchange, 200, "{\"status\":\"UP\"}"));
         server.start();
     }
 
@@ -159,151 +154,134 @@ public final class ExampleHttpServer implements AutoCloseable {
     }
 
     /**
-     * Entry point: {@code [--port N] [--catalog file.json] [--max-body-mb N]}.
+     * Entry point: {@code [--port N] [--catalog file.json] [--max-body-mb N]}; see {@link ServerArguments}.
      *
      * @param args command-line arguments
      * @throws IOException if the port can't be bound
      */
     static void main(String[] args) throws IOException {
-        int port = DEFAULT_PORT;
-        RuleCatalog catalog = null;
-        long maxBodyBytes = DEFAULT_MAX_BODY_BYTES;
-        for (int i = 0; i + 1 < args.length; i += 2) {
-            switch (args[i]) {
-                case "--port" -> port = Integer.parseInt(args[i + 1]);
-                case "--catalog" ->
-                        catalog = JsonRuleCatalogs.watching(Path.of(args[i + 1]), ExampleRuleLogic.REGISTRY);
-                case "--max-body-mb" -> maxBodyBytes = Long.parseLong(args[i + 1]) * 1024 * 1024;
-                default -> throw new IllegalArgumentException("Unknown argument " + args[i]);
-            }
-        }
+        ServerArguments arguments = ServerArguments.parse(args);
+        RuleCatalog catalog = arguments.catalog()
+                .map(file -> JsonRuleCatalogs.watching(file, ExampleRuleLogic.REGISTRY))
+                .orElseGet(ExampleHttpServer::bundledCatalog);
         // Deliberately not try-with-resources: main returns at once while the HttpServer dispatcher thread (non-daemon)
         // keeps the JVM alive, so the server must outlive this method. The shutdown hook must call close() itself.
         // A hook that only wakes main up isn't enough, because the JVM halts as soon as the hooks finish.
-        ExampleHttpServer server = start(new InetSocketAddress(port),
-                catalog != null ? catalog : bundledCatalog(), maxBodyBytes);
+        ExampleHttpServer server = start(new InetSocketAddress(arguments.port()), catalog, arguments.maxBodyBytes());
         Runtime.getRuntime().addShutdownHook(new Thread(server::close));
-        LOG.log(Level.INFO, "Listening on http://localhost:{0}/validate", String.valueOf(server.port()));
+        LOG.log(Level.INFO, () -> "Listening on http://localhost:" + server.port() + "/validate");
     }
 
-    // ------------------------------------------------------------------ POST /validate
+    // ------------------------------------------------------------------ request handling, shared by every endpoint
 
-    private void validate(HttpExchange exchange) {
+    /** One endpoint's work, run after the path and method were checked. Throws {@link HttpError} to refuse. */
+    @FunctionalInterface
+    private interface Endpoint {
+        void serve(HttpExchange exchange) throws IOException;
+    }
+
+    private void route(String path, String method, Endpoint endpoint) {
+        server.createContext(path, exchange -> handle(exchange, path, method, endpoint));
+    }
+
+    /**
+     * Runs {@code endpoint} for its exact path and method, and turns every way a request can end into the right
+     * response or log line. The JDK server matches contexts by prefix, hence the exact path check.
+     */
+    private static void handle(HttpExchange exchange, String path, String method, Endpoint endpoint) {
         try (exchange) {
-            if (!"POST".equals(exchange.getRequestMethod())) {
-                exchange.getResponseHeaders().set("Allow", "POST");
-                respondError(exchange, 405, "Use POST with a JSON array of records");
+            if (!path.equals(exchange.getRequestURI().getPath())) {
+                respondError(exchange, 404, "Not found");
                 return;
             }
-            RunRequest request;
-            try {
-                request = RunRequest.parse(exchange.getRequestURI().getRawQuery());
-            } catch (RunRequest.BadRequest e) {
-                respondError(exchange, 400, e.getMessage());
-                return;
-            }
-            Optional<RuleCatalog> snapshot = snapshotCatalog(exchange); // a 500 before streaming starts
-            if (snapshot.isEmpty()) {
-                return;
-            }
-            String contentType = mediaType(exchange.getRequestHeaders().getFirst("Content-Type"), JSON);
-            if (!contentType.equals(JSON) && !contentType.equals(NDJSON)) {
-                respondError(exchange, 415, "Content-Type must be " + JSON + " or " + NDJSON);
-                return;
-            }
-            boolean ndjsonOut = NDJSON.equals(mediaType(exchange.getRequestHeaders().getFirst("Accept"), JSON))
-                    || "ndjson".equals(RunRequest.params(exchange.getRequestURI().getRawQuery()).get("format"));
-
-            // Read the whole upload before writing anything, so half-duplex clients can't deadlock (see class doc).
-            Path spool;
-            try {
-                spool = Files.createTempFile(spoolDir, "dq-request-", ".body");
-            } catch (IOException e) {
-                respondServerError(exchange, "Could not store the request body", e);
+            if (!method.equals(exchange.getRequestMethod())) {
+                exchange.getResponseHeaders().set("Allow", method);
+                respondError(exchange, 405, "Use " + method);
                 return;
             }
             try {
-                boolean withinLimit;
-                try {
-                    withinLimit = spool(exchange.getRequestBody(), spool, maxBodyBytes);
-                } catch (IOException e) { // the temp file, not the client: see spool()
-                    respondServerError(exchange, "Could not store the request body", e);
-                    return;
+                endpoint.serve(exchange);
+            } catch (HttpError e) {
+                if (e.isServerError()) {
+                    LOG.log(Level.ERROR, e.getMessage(), e.getCause());
                 }
-                if (!withinLimit) {
-                    respondError(exchange, 413, "Request body exceeds " + maxBodyBytes + " bytes");
-                    return;
-                }
-                exchange.getResponseHeaders().set("Content-Type", ndjsonOut ? NDJSON : JSON);
-                exchange.sendResponseHeaders(200, 0); // chunked: stream as we go
-                long start = System.nanoTime();
-                InputStream body = Files.newInputStream(spool);
-                OutputStream out = exchange.getResponseBody();
-                try (RecordSource records = contentType.equals(NDJSON)
-                                ? JsonRecordSources.lines(body) : JsonRecordSources.array(body);
-                        JsonOutcomeWriter writer = ndjsonOut ? JsonOutcomeWriter.lines(out)
-                                : JsonOutcomeWriter.document(out)) {
-                    try {
-                        RunSummary summary = engine.run(records, snapshot.get(), request.options(), writer);
-                        writer.finish(summary);
-                        LOG.log(Level.INFO, "Validated {0} records: {1} results, {2} errors in {3} ms",
-                                summary.recordsRead(), summary.resultCount(), summary.errorCount(),
-                                (System.nanoTime() - start) / 1_000_000);
-                    } catch (JsonSourceException e) {
-                        LOG.log(Level.WARNING, "Request body is malformed: {0}", e.getMessage());
-                        abortQuietly(writer, e.getMessage());
-                    } catch (RuntimeException e) {
-                        LOG.log(Level.ERROR, "Validation failed", e);
-                        abortQuietly(writer, "Validation failed; see server log");
-                    }
-                }
-            } finally {
-                deleteSpool(spool);
+                respondError(exchange, e.status(), e.clientMessage());
             }
         } catch (UncheckedIOException | IOException e) {
             LOG.log(Level.DEBUG, "Client went away: {0}", e.getMessage()); // nothing left to tell the client
         }
     }
 
+    // ------------------------------------------------------------------ POST /validate
+
+    /** Checks the request, then the catalog, then stores the body; only then does the response start. */
+    private void validate(HttpExchange exchange) throws IOException {
+        RunRequest request = RunRequest.parse(exchange.getRequestURI().getRawQuery(), exchange.getRequestHeaders());
+        RuleCatalog snapshot = snapshotCatalog();
+        try (SpooledBody body = SpooledBody.store(exchange.getRequestBody(), spoolDir, maxBodyBytes)) {
+            streamOutcomes(exchange, request, snapshot, body);
+        }
+    }
+
     /**
-     * Copies the request body to {@code target} in fixed-size chunks. The request body itself is closed with the
-     * exchange.
-     *
-     * <p>The two kinds of I/O failure mean different things, so they're thrown differently: failing to read the
-     * request means the client went away ({@link UncheckedIOException}); failing to write {@code target} is a
-     * server-side problem such as a full disk ({@link IOException}).
-     *
-     * @return {@code false} if the body exceeds {@code limit} bytes; copying then stops early
+     * Sends {@code 200} and streams the run's outcomes. From here on the status can't change, so a failure ends the
+     * response with an {@code "error"} and no {@code "summary"} (see the class documentation).
      */
-    private static boolean spool(InputStream body, Path target, long limit) throws IOException {
-        byte[] buffer = new byte[64 * 1024];
-        long total = 0;
-        try (OutputStream out = Files.newOutputStream(target)) {
-            for (int read = readRequest(body, buffer); read != -1; read = readRequest(body, buffer)) {
-                total += read;
-                if (total > limit) {
-                    return false;
+    private void streamOutcomes(HttpExchange exchange, RunRequest request, RuleCatalog snapshot, SpooledBody body)
+            throws IOException {
+        try (RecordSource records = openRecords(request, body)) {
+            exchange.getResponseHeaders().set("Content-Type", request.output().mediaType());
+            exchange.sendResponseHeaders(200, 0); // chunked: stream as we go
+            long start = System.nanoTime();
+            try (JsonOutcomeWriter writer = request.output().writer(exchange.getResponseBody())) {
+                try {
+                    RunSummary summary = engine.run(records, snapshot, request.options(), writer);
+                    writer.finish(summary);
+                    logCompleted(summary, Duration.ofNanos(System.nanoTime() - start));
+                } catch (JsonSourceException e) {
+                    LOG.log(Level.WARNING, "Request body is malformed: {0}", e.getMessage());
+                    abortQuietly(writer, e.getMessage());
+                } catch (RuntimeException e) {
+                    logRunFailure(e);
+                    abortQuietly(writer, "Validation failed; see server log");
                 }
-                out.write(buffer, 0, read);
             }
         }
-        return true;
     }
 
-    private static int readRequest(InputStream body, byte[] buffer) {
+    /** Opened before the {@code 200} is sent, so a stored body that can't be read is still a clean {@code 500}. */
+    private static RecordSource openRecords(RunRequest request, SpooledBody body) {
         try {
-            return body.read(buffer);
+            return request.input().reader(body.open());
         } catch (IOException e) {
-            throw new UncheckedIOException(e); // the client went away; see spool()
+            throw HttpError.serverError("Could not read the stored request body", e);
         }
     }
 
-    private static void deleteSpool(Path spool) {
-        try {
-            Files.deleteIfExists(spool);
-        } catch (IOException e) {
-            LOG.log(Level.WARNING, "Could not delete temporary request body {0}: {1}", spool, e.getMessage());
+    private static void logCompleted(RunSummary summary, Duration took) {
+        LOG.log(Level.INFO, () -> "Validated " + summary.recordsRead() + " records: " + summary.resultCount()
+                + " results, " + summary.errorCount() + " errors in " + took.toMillis() + " ms");
+    }
+
+    /**
+     * A run that failed while streaming. A client that disconnected surfaces here as a failing sink, with an
+     * {@link IOException} somewhere in the cause chain: that's routine, not an error worth an operator's attention.
+     */
+    private static void logRunFailure(RuntimeException e) {
+        if (causedByIo(e)) {
+            LOG.log(Level.DEBUG, "Client went away while outcomes were streamed: {0}", e.getMessage());
+        } else {
+            LOG.log(Level.ERROR, "Validation failed", e);
         }
+    }
+
+    private static boolean causedByIo(Throwable failure) {
+        for (Throwable cause = failure; cause != null; cause = cause.getCause()) {
+            if (cause instanceof IOException) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static void abortQuietly(JsonOutcomeWriter writer, String reason) {
@@ -317,42 +295,19 @@ public final class ExampleHttpServer implements AutoCloseable {
     // ------------------------------------------------------------------ GET /rules
 
     private void rules(HttpExchange exchange) throws IOException {
-        try (exchange) {
-            if (!"GET".equals(exchange.getRequestMethod())) {
-                exchange.getResponseHeaders().set("Allow", "GET");
-                respondError(exchange, 405, "Use GET");
-                return;
-            }
-            RuleFilter filter;
-            try {
-                filter = RunRequest.filter(RunRequest.params(exchange.getRequestURI().getRawQuery()));
-            } catch (RunRequest.BadRequest e) {
-                respondError(exchange, 400, e.getMessage());
-                return;
-            }
-            Optional<RuleCatalog> snapshot = snapshotCatalog(exchange);
-            if (snapshot.isEmpty()) {
-                return;
-            }
-            List<Rule> rules = filter.select(snapshot.get().rules());
-            exchange.getResponseHeaders().set("Content-Type", JSON);
-            exchange.sendResponseHeaders(200, 0);
-            try (JsonGenerator json = MAPPER.createGenerator(exchange.getResponseBody())) {
-                json.writeStartArray();
-                for (Rule rule : rules) {
-                    json.writeStartObject();
-                    json.writeStringProperty("id", rule.id());
-                    json.writeStringProperty("label", rule.label());
-                    json.writeStringProperty("status", rule.status().name());
-                    json.writeStringProperty("severity", rule.severity().name());
-                    json.writeStringProperty("countryScope", rule.countryScope().toString());
-                    json.writeArrayPropertyStart("categories");
-                    rule.categories().forEach(json::writeString);
-                    json.writeEndArray();
-                    json.writeEndObject();
-                }
-                json.writeEndArray();
-            }
+        List<RuleView> rules = RunRequest.ruleFilter(exchange.getRequestURI().getRawQuery())
+                .select(snapshotCatalog().rules())
+                .stream().map(RuleView::of).toList();
+        respond(exchange, 200, MAPPER.writeValueAsString(rules));
+    }
+
+    /** A rule as {@code GET /rules} shows it: its metadata, without the logic and decision mapping. */
+    record RuleView(String id, String label, String status, String severity, String countryScope,
+            Set<String> categories) {
+
+        static RuleView of(Rule rule) {
+            return new RuleView(rule.id(), rule.label(), rule.status().name(), rule.severity().name(),
+                    rule.countryScope().toString(), rule.categories());
         }
     }
 
@@ -360,32 +315,16 @@ public final class ExampleHttpServer implements AutoCloseable {
 
     /**
      * Takes a snapshot of the catalog for one request. The catalog is host code (here possibly a watched file that
-     * can become unreadable or invalid), so any failure is the server's: it's logged and answered with {@code 500},
-     * never mistaken for a client disconnect.
+     * can become unreadable or invalid), so any failure is the server's.
      *
-     * @return the snapshot, or empty if a {@code 500} has been sent
+     * @throws HttpError {@code 500} if the catalog can't be loaded
      */
-    private Optional<RuleCatalog> snapshotCatalog(HttpExchange exchange) throws IOException {
+    private RuleCatalog snapshotCatalog() {
         try {
-            return Optional.of(RuleCatalog.of(catalog.rules()));
+            return RuleCatalog.of(catalog.rules());
         } catch (RuntimeException e) {
-            respondServerError(exchange, "Rule catalog can't be loaded", e);
-            return Optional.empty();
+            throw HttpError.serverError("Rule catalog can't be loaded", e);
         }
-    }
-
-    /** Logs a server-side failure with its cause and answers {@code 500} without exposing the details. */
-    private static void respondServerError(HttpExchange exchange, String message, Exception cause)
-            throws IOException {
-        LOG.log(Level.ERROR, message, cause);
-        respondError(exchange, 500, message + "; see server log");
-    }
-
-    private static String mediaType(String header, String fallback) {
-        if (header == null || header.isBlank() || header.startsWith("*/*")) {
-            return fallback;
-        }
-        return header.split(";")[0].trim().toLowerCase(Locale.ROOT);
     }
 
     private static void respondError(HttpExchange exchange, int status, String message) throws IOException {
@@ -394,7 +333,7 @@ public final class ExampleHttpServer implements AutoCloseable {
 
     private static void respond(HttpExchange exchange, int status, String json) throws IOException {
         byte[] bytes = json.getBytes(StandardCharsets.UTF_8);
-        exchange.getResponseHeaders().set("Content-Type", JSON);
+        exchange.getResponseHeaders().set("Content-Type", Format.JSON.mediaType());
         exchange.sendResponseHeaders(status, bytes.length);
         try (OutputStream out = exchange.getResponseBody()) {
             out.write(bytes);

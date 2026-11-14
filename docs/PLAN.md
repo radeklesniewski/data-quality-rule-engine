@@ -83,8 +83,13 @@ Priority order follows the brief: **core done well before extended features**.
 - ☑ HTTP review: server-side failures before streaming (catalog unreadable or invalid, temp file not writable) are a
   `500` on `/validate` and `/rules`, not a dropped connection; aborting a malformed-body response is quiet. Review
   notes added to ADR-0003 (action endpoint, deadlock mechanism, temp-file safety, early `200`).
-- ☐ HTTP review, next: split `validate` into smaller steps; formats in `RunRequest`; `Accept` lists; exact path
-  matching; syntax pre-pass for a `400` on malformed JSON.
+- ☑ HTTP cleanup: one `handle()` for every endpoint (exact path → `404`, method → `405`, `HttpError` → status);
+  `validate` split into checks → catalog → `SpooledBody` → `streamOutcomes`; `Format` (content type, `Accept` lists,
+  strict `format`); per-parameter errors and case-insensitive values in `RunRequest`; `ServerArguments`; a client
+  disconnect is `DEBUG`, not `ERROR` (DESIGN.md §10 #1); `/rules` sends a `Content-Length`; executor created after
+  binding.
+- ☐ HTTP, next: syntax pre-pass for a `400` on malformed JSON (ADR-0003 review notes); one shared worker pool for
+  parallel requests (DESIGN.md §10 #5).
 - ☑ JSON review (ADR-0010 review notes): NDJSON read as bytes (invalid UTF-8 is a bad line, not altered values; BOM
   accepted); stream failures are I/O errors, not "malformed JSON"; record `toString()` without values; writer rejects
   writes after close and stays well-formed after a failed write; `CatalogLoadException` serializable and never empty.
