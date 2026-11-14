@@ -51,12 +51,7 @@ public interface RecordView {
      * @throws FieldTypeException if the value is present but not a {@link String}
      */
     default Optional<String> getString(String path) {
-        return get(path).map(value -> {
-            if (value instanceof String s) {
-                return s;
-            }
-            throw new FieldTypeException(path, String.class, value.getClass());
-        });
+        return get(path).map(value -> RecordFields.as(path, value, String.class));
     }
 
     /**

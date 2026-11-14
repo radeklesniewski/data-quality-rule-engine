@@ -6,7 +6,6 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
-import java.util.regex.Pattern;
 
 /**
  * Resolves rule logic by a stable logic id. This is the bridge between rules defined as data (in a JSON file or a
@@ -41,15 +40,9 @@ public interface RuleLogicRegistry {
      */
     static RuleLogicRegistry of(Map<String, ? extends RuleLogic> logic) {
         Objects.requireNonNull(logic, "logic");
-        Pattern idFormat = Pattern.compile("[A-Za-z0-9][A-Za-z0-9._-]*");
         Map<String, RuleLogic> copy = new LinkedHashMap<>();
-        logic.forEach((id, function) -> {
-            Objects.requireNonNull(id, "logic id");
-            if (!idFormat.matcher(id).matches()) {
-                throw new IllegalArgumentException("Malformed logic id: '" + id + "'");
-            }
-            copy.put(id, Objects.requireNonNull(function, () -> "logic for id '" + id + "'"));
-        });
+        logic.forEach((id, function) -> copy.put(RuleIds.requireValid("Logic id", id),
+                Objects.requireNonNull(function, () -> "logic for id '" + id + "'")));
         Map<String, RuleLogic> registered = Collections.unmodifiableMap(copy);
         return new RuleLogicRegistry() {
             @Override
