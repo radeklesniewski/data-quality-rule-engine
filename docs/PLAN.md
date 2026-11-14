@@ -98,8 +98,13 @@ Priority order follows the brief: **core done well before extended features**.
   through `RecordFields.read`, so `RecordView.of` enforces the `DataRecord` contract too.
 - ☑ Core review, step 2 (helpers): `RecordFields.as` is the one typed cast (`RecordView.getString`,
   `RecordKeys.country`); `RuleIds` is the one id format for rule and logic ids (the registry's message now matches).
-- ☐ Core review, next: step 3 `ParallelRun`/`BatchWindow`/`Cancellation` and method-level refactors; step 4
-  visibility (`RuleEvaluator`, `TrackingRecordView` package-private).
+- ☑ Core review, step 3 (structure): `BatchWindow` (submission/completion order) out of `ParallelRun`, whose loop is
+  now named steps with all waiting and error translation in one place; `Cancellation` out of `Emitter`; `RunContext`
+  replaces the runs' long constructors and `ParallelRun`'s `ordered` flag. Method level: two-step key reading in
+  `RecordEvaluator`, `BatchReader.readOne`, `RuleSelection.requireUniqueIds`, one `SummaryCounter.counts`,
+  `RuleFilter.country` keeps the validated `Country`.
+- ☐ Core review, next: step 4 visibility (`RuleEvaluator`, `TrackingRecordView` package-private) and a DESIGN.md
+  note recording the package decision.
 - ☐ JSON review, next (need a decision): package-private exception constructors; one name for the failure field in
   both writer layouts; strict duplicate-key detection for catalogs.
 

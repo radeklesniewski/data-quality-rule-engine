@@ -14,7 +14,8 @@ import java.util.Set;
  * <p>Immutable and thread-safe, provided {@code logic} honours its contract. Equality is component-wise, so two
  * rules are equal only if they share the same {@code logic} instance. Catalogs identify rules by {@link #id()}.
  *
- * @param id stable identifier, unique within a catalog; letters, digits, {@code . _ -}; must start with a letter or digit
+ * @param id stable identifier, unique within a catalog; letters, digits, {@code . _ -}; must start with a letter or
+ *     digit
  * @param label human-readable name
  * @param logic computes the value
  * @param decisionMapping maps the value to a decision

@@ -1,6 +1,5 @@
 package io.github.radeklesniewski.dq.internal;
 
-import io.github.radeklesniewski.dq.ExecutionMode;
 import io.github.radeklesniewski.dq.OutcomeSink;
 import io.github.radeklesniewski.dq.RunOptions;
 import io.github.radeklesniewski.dq.RunSummary;
@@ -28,16 +27,15 @@ public final class Runs {
     public static RunSummary execute(RecordSource source, RuleCatalog catalog, RunOptions options, RecordKeys keys,
             OutcomeSink sink) {
         List<Rule> rules = RuleSelection.executable(catalog, options.ruleFilter());
-        RecordEvaluator evaluator = new RecordEvaluator(rules, keys, options.emitOutOfScope());
         SummaryCounter summary = new SummaryCounter(rules.size());
-        BatchReader reader = new BatchReader(source, options.batchSize(), summary);
-        Emitter emitter = new Emitter(sink, summary);
+        RunContext run = new RunContext(
+                new BatchReader(source, options.batchSize(), summary),
+                new RecordEvaluator(rules, keys, options.emitOutOfScope()),
+                new Emitter(sink, summary),
+                new Cancellation(summary));
         return switch (options.executionMode()) {
-            case SEQUENTIAL -> new SequentialRun(reader, evaluator, emitter).execute();
-            case PARALLEL_ORDERED, PARALLEL_UNORDERED -> new ParallelRun(reader, evaluator, emitter,
-                    options.parallelism(), options.maxInFlightBatches(),
-                    options.executionMode() == ExecutionMode.PARALLEL_ORDERED)
-                    .execute();
+            case SEQUENTIAL -> new SequentialRun(run).execute();
+            case PARALLEL_ORDERED, PARALLEL_UNORDERED -> new ParallelRun(run, options).execute();
         };
     }
 }

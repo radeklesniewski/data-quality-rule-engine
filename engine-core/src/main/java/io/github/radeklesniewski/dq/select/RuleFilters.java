@@ -1,5 +1,6 @@
 package io.github.radeklesniewski.dq.select;
 
+import io.github.radeklesniewski.dq.rule.CountryScope;
 import io.github.radeklesniewski.dq.rule.Rule;
 import io.github.radeklesniewski.dq.rule.RuleStatus;
 import java.util.Collection;
@@ -44,15 +45,15 @@ final class RuleFilters {
         }
     }
 
-    record ApplicableTo(String countryCode) implements RuleFilter {
+    record ApplicableTo(CountryScope.Country country) implements RuleFilter {
         @Override
         public boolean matches(Rule rule) {
-            return rule.countryScope().appliesTo(Optional.of(countryCode));
+            return rule.countryScope().appliesTo(Optional.of(country.code()));
         }
 
         @Override
         public String toString() {
-            return "country " + countryCode + " (incl. WORLD)";
+            return "country " + country.code() + " (incl. WORLD)";
         }
     }
 

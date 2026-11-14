@@ -9,6 +9,7 @@ import io.github.radeklesniewski.dq.rule.Decision;
 import io.github.radeklesniewski.dq.rule.Severity;
 import java.util.EnumMap;
 import java.util.Map;
+import java.util.stream.LongStream;
 
 /** Mutable run counters. Constant memory, independent of input size. Not thread-safe. Internal. */
 final class SummaryCounter {
@@ -45,17 +46,16 @@ final class SummaryCounter {
     }
 
     RunSummary snapshot() {
-        Map<Decision, Long> decisions = new EnumMap<>(Decision.class);
-        long results = 0;
-        for (Decision decision : Decision.values()) {
-            decisions.put(decision, byDecision[decision.ordinal()]);
-            results += byDecision[decision.ordinal()];
+        return new RunSummary(rulesSelected, recordsRead, batches, LongStream.of(byDecision).sum(), ruleErrors,
+                recordErrors, counts(Decision.class, byDecision), counts(Severity.class, bySeverity));
+    }
+
+    /** The counts indexed by ordinal, as a map with every constant of {@code type} present. */
+    private static <E extends Enum<E>> Map<E, Long> counts(Class<E> type, long[] byOrdinal) {
+        Map<E, Long> counts = new EnumMap<>(type);
+        for (E key : type.getEnumConstants()) {
+            counts.put(key, byOrdinal[key.ordinal()]);
         }
-        Map<Severity, Long> severities = new EnumMap<>(Severity.class);
-        for (Severity severity : Severity.values()) {
-            severities.put(severity, bySeverity[severity.ordinal()]);
-        }
-        return new RunSummary(
-                rulesSelected, recordsRead, batches, results, ruleErrors, recordErrors, decisions, severities);
+        return counts;
     }
 }

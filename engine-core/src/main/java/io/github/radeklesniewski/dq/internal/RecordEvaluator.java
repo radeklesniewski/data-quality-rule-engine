@@ -48,21 +48,34 @@ final class RecordEvaluator {
     /** Evaluates one item, passing each outcome to {@code out} in catalog order. */
     void evaluate(BatchItem item, Consumer<Outcome> out) {
         switch (item) {
-            case BatchItem.Unreadable(long index, var cause) -> out.accept(RecordError.of(index, Optional.empty(), cause));
+            case BatchItem.Unreadable(long index, var cause) ->
+                    out.accept(RecordError.of(index, Optional.empty(), cause));
             case BatchItem.Readable(long index, DataRecord record) -> evaluate(index, record, out);
         }
     }
 
+    /** Reads the record's keys; a record without a usable id or country gets one {@link RecordError} and no rules. */
     private void evaluate(long index, DataRecord record, Consumer<Outcome> out) {
-        String id = null;
-        Optional<String> country;
+        String id;
         try {
             id = keys.id(record);
-            country = keys.country(record);
         } catch (Exception e) {
-            out.accept(RecordError.of(index, Optional.ofNullable(id), e));
+            out.accept(RecordError.of(index, Optional.empty(), e));
             return;
         }
+        Optional<String> country;
+        try {
+            country = keys.country(record);
+        } catch (Exception e) {
+            out.accept(RecordError.of(index, Optional.of(id), e)); // the id is known, so the error carries it
+            return;
+        }
+        evaluateRules(index, record, id, country, out);
+    }
+
+    /** Every selected rule in catalog order: evaluated within its country scope, otherwise skipped (ADR-0007). */
+    private void evaluateRules(long index, DataRecord record, String id, Optional<String> country,
+            Consumer<Outcome> out) {
         for (Rule rule : rules) {
             if (rule.countryScope().appliesTo(country)) {
                 out.accept(evaluateIsolated(rule, record, id, index));

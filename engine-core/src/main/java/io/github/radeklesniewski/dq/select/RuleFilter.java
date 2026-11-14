@@ -94,7 +94,7 @@ public interface RuleFilter {
      * @throws IllegalArgumentException if {@code countryCode} isn't a valid code
      */
     static RuleFilter country(String countryCode) {
-        return new RuleFilters.ApplicableTo(new CountryScope.Country(countryCode).code());
+        return new RuleFilters.ApplicableTo(new CountryScope.Country(countryCode));
     }
 
     /**
