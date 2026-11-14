@@ -4,6 +4,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.radeklesniewski.dq.Fixtures;
+import io.github.radeklesniewski.dq.json.CatalogLoadException;
 import io.github.radeklesniewski.dq.rule.Decision;
 import io.github.radeklesniewski.dq.rule.RuleCatalog;
 import java.io.BufferedReader;
@@ -11,12 +12,14 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
+import java.io.UncheckedIOException;
 import java.net.InetSocketAddress;
 import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.file.Path;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -27,6 +30,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Nested;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.Timeout;
+import org.junit.jupiter.api.io.TempDir;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.ValueSource;
 import tools.jackson.databind.JsonNode;
@@ -309,6 +313,39 @@ class ExampleHttpServerTest {
             assertThat(get.headers().firstValue("Allow")).contains("POST");
 
             assertThat(post(fixtureServer, "/validate", "text/csv", "id\nr1").statusCode()).isEqualTo(415);
+        }
+
+        @Test
+        void unwritableSpoolDirectoryIsA500NotADroppedConnection(@TempDir Path dir) throws Exception {
+            try (ExampleHttpServer server = ExampleHttpServer.start(new InetSocketAddress("localhost", 0),
+                    RuleCatalog.of(Fixtures.RULES), ExampleHttpServer.DEFAULT_MAX_BODY_BYTES, dir.resolve("missing"))) {
+                HttpResponse<String> response = post(server, "/validate", "application/json", FIXTURE_RECORDS);
+
+                assertThat(response.statusCode()).isEqualTo(500);
+                assertThat(JSON.readTree(response.body()).get("error").stringValue())
+                        .isEqualTo("Could not store the request body; see server log");
+            }
+        }
+
+        @ParameterizedTest
+        @ValueSource(strings = {"invalid", "unreadable"})
+        void brokenCatalogIsA500OnEveryEndpointThatReadsIt(String failure) throws Exception {
+            RuleCatalog broken = () -> {
+                throw switch (failure) {
+                    case "invalid" -> new CatalogLoadException(List.of("rules[0]: \"severity\" is required"), null);
+                    default -> new UncheckedIOException(new IOException("catalog file deleted"));
+                };
+            };
+            try (ExampleHttpServer server = ExampleHttpServer.start(new InetSocketAddress("localhost", 0), broken)) {
+                HttpResponse<String> validate = post(server, "/validate", "application/json", FIXTURE_RECORDS);
+                HttpResponse<String> rules = get(server, "/rules");
+
+                for (HttpResponse<String> response : List.of(validate, rules)) {
+                    assertThat(response.statusCode()).as(response.uri().getPath()).isEqualTo(500);
+                    assertThat(JSON.readTree(response.body()).get("error").stringValue())
+                            .isEqualTo("Rule catalog can't be loaded; see server log");
+                }
+            }
         }
 
         @Test

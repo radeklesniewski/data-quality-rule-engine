@@ -4,7 +4,6 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import io.github.radeklesniewski.dq.RunSummary;
 import io.github.radeklesniewski.dq.ValidationEngine;
-import io.github.radeklesniewski.dq.json.CatalogLoadException;
 import io.github.radeklesniewski.dq.json.JsonOutcomeWriter;
 import io.github.radeklesniewski.dq.json.JsonRecordSources;
 import io.github.radeklesniewski.dq.json.JsonRuleCatalog;
@@ -26,6 +25,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Optional;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import tools.jackson.core.JsonGenerator;
@@ -54,6 +54,10 @@ import tools.jackson.databind.json.JsonMapper;
  * response ends with an {@code "error"} and has no {@code "summary"}. Clients must treat a response without a summary
  * as incomplete.
  *
+ * <p>Server-side failures that happen before streaming starts (an unreadable or invalid catalog, a temporary file
+ * that can't be written) are logged and answered with {@code 500}. Only I/O failures on the connection itself are
+ * treated as the client having gone away.
+ *
  * <p>Run: {@code ./gradlew :example-http:run --args="--port 8080 --catalog path/to/catalog.json --max-body-mb 1024"}.
  * All arguments are optional. The bundled {@code example-catalog.json} and a 1 GiB body limit are the defaults.
  */
@@ -66,19 +70,23 @@ public final class ExampleHttpServer implements AutoCloseable {
 
     /** Default limit for a request body: 1 GiB, roughly 10 million partner records. */
     public static final long DEFAULT_MAX_BODY_BYTES = 1024L * 1024 * 1024;
+    private static final int DEFAULT_PORT = 8080;
 
     private final HttpServer server;
     private final ExecutorService executor;
     private final RuleCatalog catalog;
     private final long maxBodyBytes;
+    private final Path spoolDir;
     private final ValidationEngine engine = ValidationEngine.create();
 
-    private ExampleHttpServer(InetSocketAddress address, RuleCatalog catalog, long maxBodyBytes) throws IOException {
+    private ExampleHttpServer(InetSocketAddress address, RuleCatalog catalog, long maxBodyBytes, Path spoolDir)
+            throws IOException {
         this.catalog = Objects.requireNonNull(catalog, "catalog");
         if (maxBodyBytes < 1) {
             throw new IllegalArgumentException("maxBodyBytes must be >= 1, got " + maxBodyBytes);
         }
         this.maxBodyBytes = maxBodyBytes;
+        this.spoolDir = Objects.requireNonNull(spoolDir, "spoolDir");
         this.executor = Executors.newVirtualThreadPerTaskExecutor();
         this.server = HttpServer.create(address, 0);
         server.setExecutor(executor);
@@ -111,7 +119,13 @@ public final class ExampleHttpServer implements AutoCloseable {
      */
     public static ExampleHttpServer start(InetSocketAddress address, RuleCatalog catalog, long maxBodyBytes)
             throws IOException {
-        return new ExampleHttpServer(address, catalog, maxBodyBytes);
+        return start(address, catalog, maxBodyBytes, Path.of(System.getProperty("java.io.tmpdir")));
+    }
+
+    /** Starts a server that spools request bodies into {@code spoolDir}. Package-private: a seam for tests. */
+    static ExampleHttpServer start(InetSocketAddress address, RuleCatalog catalog, long maxBodyBytes, Path spoolDir)
+            throws IOException {
+        return new ExampleHttpServer(address, catalog, maxBodyBytes, spoolDir);
     }
 
     /**
@@ -150,8 +164,8 @@ public final class ExampleHttpServer implements AutoCloseable {
      * @param args command-line arguments
      * @throws IOException if the port can't be bound
      */
-    public static void main(String[] args) throws IOException {
-        int port = 8080;
+    static void main(String[] args) throws IOException {
+        int port = DEFAULT_PORT;
         RuleCatalog catalog = null;
         long maxBodyBytes = DEFAULT_MAX_BODY_BYTES;
         for (int i = 0; i + 1 < args.length; i += 2) {
@@ -162,6 +176,9 @@ public final class ExampleHttpServer implements AutoCloseable {
                 default -> throw new IllegalArgumentException("Unknown argument " + args[i]);
             }
         }
+        // Deliberately not try-with-resources: main returns at once while the HttpServer dispatcher thread (non-daemon)
+        // keeps the JVM alive, so the server must outlive this method. The shutdown hook must call close() itself.
+        // A hook that only wakes main up isn't enough, because the JVM halts as soon as the hooks finish.
         ExampleHttpServer server = start(new InetSocketAddress(port),
                 catalog != null ? catalog : bundledCatalog(), maxBodyBytes);
         Runtime.getRuntime().addShutdownHook(new Thread(server::close));
@@ -170,7 +187,7 @@ public final class ExampleHttpServer implements AutoCloseable {
 
     // ------------------------------------------------------------------ POST /validate
 
-    private void validate(HttpExchange exchange) throws IOException {
+    private void validate(HttpExchange exchange) {
         try (exchange) {
             if (!"POST".equals(exchange.getRequestMethod())) {
                 exchange.getResponseHeaders().set("Allow", "POST");
@@ -178,16 +195,14 @@ public final class ExampleHttpServer implements AutoCloseable {
                 return;
             }
             RunRequest request;
-            RuleCatalog snapshot;
             try {
                 request = RunRequest.parse(exchange.getRequestURI().getRawQuery());
-                snapshot = RuleCatalog.of(catalog.rules()); // catalog problems become a 500 before streaming starts
             } catch (RunRequest.BadRequest e) {
                 respondError(exchange, 400, e.getMessage());
                 return;
-            } catch (CatalogLoadException e) {
-                LOG.log(Level.ERROR, "Rule catalog is invalid", e);
-                respondError(exchange, 500, "Rule catalog is invalid; see server log");
+            }
+            Optional<RuleCatalog> snapshot = snapshotCatalog(exchange); // a 500 before streaming starts
+            if (snapshot.isEmpty()) {
                 return;
             }
             String contentType = mediaType(exchange.getRequestHeaders().getFirst("Content-Type"), JSON);
@@ -199,9 +214,22 @@ public final class ExampleHttpServer implements AutoCloseable {
                     || "ndjson".equals(RunRequest.params(exchange.getRequestURI().getRawQuery()).get("format"));
 
             // Read the whole upload before writing anything, so half-duplex clients can't deadlock (see class doc).
-            Path spool = Files.createTempFile("dq-request-", ".body");
+            Path spool;
             try {
-                if (!spool(exchange.getRequestBody(), spool, maxBodyBytes)) {
+                spool = Files.createTempFile(spoolDir, "dq-request-", ".body");
+            } catch (IOException e) {
+                respondServerError(exchange, "Could not store the request body", e);
+                return;
+            }
+            try {
+                boolean withinLimit;
+                try {
+                    withinLimit = spool(exchange.getRequestBody(), spool, maxBodyBytes);
+                } catch (IOException e) { // the temp file, not the client: see spool()
+                    respondServerError(exchange, "Could not store the request body", e);
+                    return;
+                }
+                if (!withinLimit) {
                     respondError(exchange, 413, "Request body exceeds " + maxBodyBytes + " bytes");
                     return;
                 }
@@ -215,21 +243,21 @@ public final class ExampleHttpServer implements AutoCloseable {
                         JsonOutcomeWriter writer = ndjsonOut ? JsonOutcomeWriter.lines(out)
                                 : JsonOutcomeWriter.document(out)) {
                     try {
-                        RunSummary summary = engine.run(records, snapshot, request.options(), writer);
+                        RunSummary summary = engine.run(records, snapshot.get(), request.options(), writer);
                         writer.finish(summary);
                         LOG.log(Level.INFO, "Validated {0} records: {1} results, {2} errors in {3} ms",
                                 summary.recordsRead(), summary.resultCount(), summary.errorCount(),
                                 (System.nanoTime() - start) / 1_000_000);
                     } catch (JsonSourceException e) {
                         LOG.log(Level.WARNING, "Request body is malformed: {0}", e.getMessage());
-                        writer.abort(e.getMessage());
+                        abortQuietly(writer, e.getMessage());
                     } catch (RuntimeException e) {
                         LOG.log(Level.ERROR, "Validation failed", e);
                         abortQuietly(writer, "Validation failed; see server log");
                     }
                 }
             } finally {
-                Files.deleteIfExists(spool);
+                deleteSpool(spool);
             }
         } catch (UncheckedIOException | IOException e) {
             LOG.log(Level.DEBUG, "Client went away: {0}", e.getMessage()); // nothing left to tell the client
@@ -237,15 +265,20 @@ public final class ExampleHttpServer implements AutoCloseable {
     }
 
     /**
-     * Copies the request body to {@code target} in fixed-size chunks.
+     * Copies the request body to {@code target} in fixed-size chunks. The request body itself is closed with the
+     * exchange.
+     *
+     * <p>The two kinds of I/O failure mean different things, so they're thrown differently: failing to read the
+     * request means the client went away ({@link UncheckedIOException}); failing to write {@code target} is a
+     * server-side problem such as a full disk ({@link IOException}).
      *
      * @return {@code false} if the body exceeds {@code limit} bytes; copying then stops early
      */
     private static boolean spool(InputStream body, Path target, long limit) throws IOException {
         byte[] buffer = new byte[64 * 1024];
         long total = 0;
-        try (body; OutputStream out = Files.newOutputStream(target)) {
-            for (int read = body.read(buffer); read != -1; read = body.read(buffer)) {
+        try (OutputStream out = Files.newOutputStream(target)) {
+            for (int read = readRequest(body, buffer); read != -1; read = readRequest(body, buffer)) {
                 total += read;
                 if (total > limit) {
                     return false;
@@ -254,6 +287,22 @@ public final class ExampleHttpServer implements AutoCloseable {
             }
         }
         return true;
+    }
+
+    private static int readRequest(InputStream body, byte[] buffer) {
+        try {
+            return body.read(buffer);
+        } catch (IOException e) {
+            throw new UncheckedIOException(e); // the client went away; see spool()
+        }
+    }
+
+    private static void deleteSpool(Path spool) {
+        try {
+            Files.deleteIfExists(spool);
+        } catch (IOException e) {
+            LOG.log(Level.WARNING, "Could not delete temporary request body {0}: {1}", spool, e.getMessage());
+        }
     }
 
     private static void abortQuietly(JsonOutcomeWriter writer, String reason) {
@@ -273,14 +322,18 @@ public final class ExampleHttpServer implements AutoCloseable {
                 respondError(exchange, 405, "Use GET");
                 return;
             }
-            List<Rule> rules;
+            RuleFilter filter;
             try {
-                RuleFilter filter = RunRequest.filter(RunRequest.params(exchange.getRequestURI().getRawQuery()));
-                rules = filter.select(catalog.rules());
+                filter = RunRequest.filter(RunRequest.params(exchange.getRequestURI().getRawQuery()));
             } catch (RunRequest.BadRequest e) {
                 respondError(exchange, 400, e.getMessage());
                 return;
             }
+            Optional<RuleCatalog> snapshot = snapshotCatalog(exchange);
+            if (snapshot.isEmpty()) {
+                return;
+            }
+            List<Rule> rules = filter.select(snapshot.get().rules());
             exchange.getResponseHeaders().set("Content-Type", JSON);
             exchange.sendResponseHeaders(200, 0);
             try (JsonGenerator json = MAPPER.createGenerator(exchange.getResponseBody())) {
@@ -303,6 +356,29 @@ public final class ExampleHttpServer implements AutoCloseable {
     }
 
     // ------------------------------------------------------------------ helpers
+
+    /**
+     * Takes a snapshot of the catalog for one request. The catalog is host code (here possibly a watched file that
+     * can become unreadable or invalid), so any failure is the server's: it's logged and answered with {@code 500},
+     * never mistaken for a client disconnect.
+     *
+     * @return the snapshot, or empty if a {@code 500} has been sent
+     */
+    private Optional<RuleCatalog> snapshotCatalog(HttpExchange exchange) throws IOException {
+        try {
+            return Optional.of(RuleCatalog.of(catalog.rules()));
+        } catch (RuntimeException e) {
+            respondServerError(exchange, "Rule catalog can't be loaded", e);
+            return Optional.empty();
+        }
+    }
+
+    /** Logs a server-side failure with its cause and answers {@code 500} without exposing the details. */
+    private static void respondServerError(HttpExchange exchange, String message, Exception cause)
+            throws IOException {
+        LOG.log(Level.ERROR, message, cause);
+        respondError(exchange, 500, message + "; see server log");
+    }
 
     private static String mediaType(String header, String fallback) {
         if (header == null || header.isBlank() || header.startsWith("*/*")) {
