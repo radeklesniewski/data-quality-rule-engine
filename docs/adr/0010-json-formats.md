@@ -25,7 +25,7 @@ adapter must keep F5's streaming guarantee and F3's fault-isolation semantics.
 - Neither format bounds the size of a **single** record or NDJSON line: one record is parsed into memory at a time.
   Memory is bounded in the number of records, not in the size of one record (see DESIGN.md §4 and §10).
 
-**Catalog: `JsonRuleCatalog`. It's strict, all-or-nothing, and reports every problem at once.**
+**Catalog: `JsonRuleCatalogs`. It's strict, all-or-nothing, and reports every problem at once.**
 - Format: `{"rules": [{id, label, logic, status, severity, countryScope?, categories?, decisionMapping: {mappings, default}}]}`.
   The decision mapping is plain data. `logic` is an id resolved through `RuleLogicRegistry` (in core, so other
   catalog sources such as a database or YAML can use it too).
@@ -33,7 +33,7 @@ adapter must keep F5's streaming guarantee and F3's fault-isolation semantics.
   defaults. `status` is required in data, even though the Java builder defaults it to DRAFT.
 - Every problem (bad enum, unknown logic id, duplicate id, invalid rule) is collected with its location
   (`rules[1] 'vatFormat': ...`) into one `CatalogLoadException`, so authors fix everything in one pass.
-- `JsonRuleCatalog.watching(path)` re-reads the file when its modification time changes. The engine snapshots a
+- `JsonRuleCatalogs.watching(path)` re-reads the file when its modification time changes. The engine snapshots a
   catalog once per run, so edits apply from the next run, never mid-run. An invalid edit makes the next run fail
   fast instead of silently running stale rules.
 
@@ -88,12 +88,13 @@ themselves didn't change.
   `"message"` on the NDJSON error line); aligning them would change the wire format.
 
 **Module structure after the single-responsibility refactor (2026-11-14).** The public API is unchanged: the
-entry points `JsonRecordSources`, `JsonRuleCatalog`, `JsonOutcomeWriter`, `JsonDataRecord` and the two exceptions.
-Each entry point now delegates to package-private classes with one job each, so none of these is API:
+entry points `JsonRecordSources`, `JsonRuleCatalogs`, `JsonOutcomeWriter`, `JsonDataRecord` and the two exceptions.
+Each entry point now delegates to package-private classes with one job each, so none of these is API. The three
+rows are now three packages, `dq.json.record`, `dq.json.catalog` and `dq.json.outcome` (ADR-0011):
 
 | Concern | Entry point | Helpers |
 |---|---|---|
 | Records in | `JsonRecordSources` (factories) | `JsonArraySource`, `NdjsonSource`, `ByteLineReader` (byte lines, no decoding), `RecordNodes` (node → record, shared error wording) |
 | Record values | `JsonDataRecord` (path navigation) | `JsonValues` (JSON → plain value model, ADR-0008) |
-| Catalog | `JsonRuleCatalog` (load, watch, read JSON) | `CatalogParser` (catalog format → rules), `CatalogFields` (validated typed property access), `CatalogProblems` (located problem collection), `WatchingCatalog` (change detection and caching) |
+| Catalog | `JsonRuleCatalogs` (load, watch, read JSON) | `CatalogParser` (catalog format → rules), `CatalogFields` (validated typed property access), `CatalogProblems` (located problem collection), `WatchingCatalog` (change detection and caching) |
 | Outcomes out | `JsonOutcomeWriter` (lifecycle: finish, abort, close) | `OutcomeJson` (shape of outcomes and summary), `OutputLayout` (document vs NDJSON framing) |

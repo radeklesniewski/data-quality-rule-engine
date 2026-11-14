@@ -1,5 +1,6 @@
-package io.github.radeklesniewski.dq.json;
+package io.github.radeklesniewski.dq.json.record;
 
+import io.github.radeklesniewski.dq.json.internal.Json;
 import io.github.radeklesniewski.dq.record.DataRecord;
 import io.github.radeklesniewski.dq.record.RecordReadException;
 import io.github.radeklesniewski.dq.record.RecordSource;

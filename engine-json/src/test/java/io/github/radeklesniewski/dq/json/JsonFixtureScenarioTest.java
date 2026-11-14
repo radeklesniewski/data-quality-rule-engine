@@ -7,6 +7,10 @@ import io.github.radeklesniewski.dq.Fixtures;
 import io.github.radeklesniewski.dq.RunOptions;
 import io.github.radeklesniewski.dq.RunSummary;
 import io.github.radeklesniewski.dq.ValidationEngine;
+import io.github.radeklesniewski.dq.json.catalog.JsonRuleCatalogs;
+import io.github.radeklesniewski.dq.json.internal.Json;
+import io.github.radeklesniewski.dq.json.outcome.JsonOutcomeWriter;
+import io.github.radeklesniewski.dq.json.record.JsonRecordSources;
 import io.github.radeklesniewski.dq.record.RecordSource;
 import io.github.radeklesniewski.dq.rule.Decision;
 import io.github.radeklesniewski.dq.rule.RuleCatalog;
@@ -30,7 +34,7 @@ class JsonFixtureScenarioTest {
     private static JsonNode run(InputStream records, RunOptions options) throws IOException {
         RuleCatalog catalog;
         try (InputStream in = resource("catalog.json")) {
-            catalog = JsonRuleCatalog.load(in, Fixtures.LOGIC);
+            catalog = JsonRuleCatalogs.load(in, Fixtures.LOGIC);
         }
         ByteArrayOutputStream out = new ByteArrayOutputStream();
         try (RecordSource source = JsonRecordSources.array(records);

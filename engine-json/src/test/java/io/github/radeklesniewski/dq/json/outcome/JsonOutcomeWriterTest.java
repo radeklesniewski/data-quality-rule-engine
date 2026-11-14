@@ -1,4 +1,4 @@
-package io.github.radeklesniewski.dq.json;
+package io.github.radeklesniewski.dq.json.outcome;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -10,6 +10,7 @@ import io.github.radeklesniewski.dq.RecordError;
 import io.github.radeklesniewski.dq.Result;
 import io.github.radeklesniewski.dq.RuleError;
 import io.github.radeklesniewski.dq.RunSummary;
+import io.github.radeklesniewski.dq.json.internal.Json;
 import io.github.radeklesniewski.dq.rule.Decision;
 import io.github.radeklesniewski.dq.rule.Severity;
 import java.io.ByteArrayOutputStream;

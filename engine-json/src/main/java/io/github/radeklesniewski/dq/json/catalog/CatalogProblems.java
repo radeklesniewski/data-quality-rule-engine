@@ -1,4 +1,4 @@
-package io.github.radeklesniewski.dq.json;
+package io.github.radeklesniewski.dq.json.catalog;
 
 import java.util.ArrayList;
 import java.util.List;

@@ -1,4 +1,4 @@
-package io.github.radeklesniewski.dq.json;
+package io.github.radeklesniewski.dq.json.internal;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
@@ -10,8 +10,11 @@ import tools.jackson.databind.DeserializationFeature;
 import tools.jackson.databind.ObjectReader;
 import tools.jackson.databind.json.JsonMapper;
 
-/** Shared Jackson configuration. Internal to this module. */
-final class Json {
+/**
+ * Shared Jackson configuration and error translation for every package of this module. Public only so the feature
+ * packages can share it: {@code module-info} doesn't export this package, so it isn't API.
+ */
+public final class Json {
 
     /**
      * Mapper for reading records and catalogs, and for writing outcomes. Decimals are read as {@code BigDecimal}, so
@@ -20,7 +23,7 @@ final class Json {
      * closes whatever arrays and objects are still open (stated explicitly, though it's Jackson's default), so output
      * stays well-formed even if a write failed half-way through an outcome.
      */
-    static final JsonMapper MAPPER = JsonMapper.builder(JsonFactory.builder().rootValueSeparator("\n").build())
+    public static final JsonMapper MAPPER = JsonMapper.builder(JsonFactory.builder().rootValueSeparator("\n").build())
             .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
             .disable(StreamReadFeature.INCLUDE_SOURCE_IN_LOCATION)
             .enable(StreamWriteFeature.AUTO_CLOSE_CONTENT)
@@ -30,7 +33,8 @@ final class Json {
      * Reads one value out of a larger stream (an element of the records array). The rest of the array necessarily
      * follows, so the "no trailing tokens" check that protects whole-document reads must be off here.
      */
-    static final ObjectReader ELEMENT_READER = MAPPER.reader().without(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
+    public static final ObjectReader ELEMENT_READER =
+            MAPPER.reader().without(DeserializationFeature.FAIL_ON_TRAILING_TOKENS);
 
     private Json() {
     }
@@ -40,7 +44,8 @@ final class Json {
      * {@link JacksonIOException}, a subtype of the {@code JacksonException} that also signals syntax errors, so
      * without this a disconnect or a disk error would be reported as malformed JSON.
      */
-    static UncheckedIOException ioFailure(String message, JacksonIOException e) {
-        return new UncheckedIOException(message, e.getCause() instanceof IOException cause ? cause : new IOException(e));
+    public static UncheckedIOException ioFailure(String message, JacksonIOException e) {
+        IOException cause = e.getCause() instanceof IOException io ? io : new IOException(e);
+        return new UncheckedIOException(message, cause);
     }
 }

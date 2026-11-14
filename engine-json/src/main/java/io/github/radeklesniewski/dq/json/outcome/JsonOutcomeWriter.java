@@ -1,8 +1,9 @@
-package io.github.radeklesniewski.dq.json;
+package io.github.radeklesniewski.dq.json.outcome;
 
 import io.github.radeklesniewski.dq.Outcome;
 import io.github.radeklesniewski.dq.OutcomeSink;
 import io.github.radeklesniewski.dq.RunSummary;
+import io.github.radeklesniewski.dq.json.internal.Json;
 import java.io.OutputStream;
 import java.util.Objects;
 import tools.jackson.core.JsonGenerator;

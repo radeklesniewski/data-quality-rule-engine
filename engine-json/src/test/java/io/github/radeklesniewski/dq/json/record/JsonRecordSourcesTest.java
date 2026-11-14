@@ -1,9 +1,10 @@
-package io.github.radeklesniewski.dq.json;
+package io.github.radeklesniewski.dq.json.record;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import io.github.radeklesniewski.dq.json.internal.Json;
 import io.github.radeklesniewski.dq.record.DataRecord;
 import io.github.radeklesniewski.dq.record.RecordReadException;
 import io.github.radeklesniewski.dq.record.RecordSource;
@@ -298,7 +299,8 @@ class JsonRecordSourcesTest {
 
     @Test
     void jsonDataRecordToStringShowsFieldNamesButNeverValues() {
-        DataRecord record = JsonDataRecord.of(Json.MAPPER.readTree("{\"id\": \"r1\", \"iban\": \"DE89370400440532013000\"}"));
+        DataRecord record = JsonDataRecord.of(
+                Json.MAPPER.readTree("{\"id\": \"r1\", \"iban\": \"DE89370400440532013000\"}"));
 
         assertThat(record.toString()).isEqualTo("JsonDataRecord[id, iban]");
     }

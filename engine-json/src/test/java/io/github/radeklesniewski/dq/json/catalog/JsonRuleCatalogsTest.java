@@ -1,4 +1,4 @@
-package io.github.radeklesniewski.dq.json;
+package io.github.radeklesniewski.dq.json.catalog;
 
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -27,14 +27,14 @@ import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
-class JsonRuleCatalogTest {
+class JsonRuleCatalogsTest {
 
     private static InputStream stream(String json) {
         return new ByteArrayInputStream(json.getBytes(UTF_8));
     }
 
     private static RuleCatalog load(String json) {
-        return JsonRuleCatalog.load(stream(json), Fixtures.LOGIC);
+        return JsonRuleCatalogs.load(stream(json), Fixtures.LOGIC);
     }
 
     private static List<String> problems(String json) {
@@ -50,7 +50,7 @@ class JsonRuleCatalogTest {
     void loadsTheFixtureCatalogEquivalentToTheJavaDefinedRules() throws IOException {
         List<Rule> rules;
         try (InputStream in = getClass().getResourceAsStream("/fixture/catalog.json")) {
-            rules = JsonRuleCatalog.load(in, Fixtures.LOGIC).rules();
+            rules = JsonRuleCatalogs.load(in, Fixtures.LOGIC).rules();
         }
 
         assertThat(rules).extracting(Rule::id).containsExactly("countryBlocked", "vatFormat", "ibanFormat");
@@ -146,7 +146,7 @@ class JsonRuleCatalogTest {
                 {"rules": [{"id": "one", "label": "One", "logic": "vatFormat", "status": "RELEASED",
                   "severity": "ERROR", "decisionMapping": {"default": "VALID"}}]}""";
         Files.writeString(file, one);
-        RuleCatalog catalog = JsonRuleCatalog.watching(file, Fixtures.LOGIC);
+        RuleCatalog catalog = JsonRuleCatalogs.watching(file, Fixtures.LOGIC);
         List<Rule> first = catalog.rules();
 
         assertThat(catalog.rules()).as("unchanged file is not re-parsed").isSameAs(first);
@@ -165,7 +165,7 @@ class JsonRuleCatalogTest {
         Path file = dir.resolve("catalog.json");
         Files.writeString(file, "{\"rules\": [{}]}");
 
-        assertThatThrownBy(() -> JsonRuleCatalog.watching(file, Fixtures.LOGIC))
+        assertThatThrownBy(() -> JsonRuleCatalogs.watching(file, Fixtures.LOGIC))
                 .isInstanceOf(CatalogLoadException.class);
     }
 
@@ -199,7 +199,7 @@ class JsonRuleCatalogTest {
             }
         };
 
-        assertThatThrownBy(() -> JsonRuleCatalog.load(failing, Fixtures.LOGIC))
+        assertThatThrownBy(() -> JsonRuleCatalogs.load(failing, Fixtures.LOGIC))
                 .isInstanceOf(UncheckedIOException.class)
                 .hasRootCauseMessage("disk error");
     }
@@ -210,7 +210,7 @@ class JsonRuleCatalogTest {
         Files.writeString(file, """
                 {"rules": [{"id": "one", "label": "One", "logic": "vatFormat", "status": "RELEASED",
                   "severity": "ERROR", "decisionMapping": {"default": "VALID"}}]}""");
-        RuleCatalog catalog = JsonRuleCatalog.watching(file, Fixtures.LOGIC);
+        RuleCatalog catalog = JsonRuleCatalogs.watching(file, Fixtures.LOGIC);
         Files.delete(file);
 
         assertThatThrownBy(catalog::rules).isInstanceOf(UncheckedIOException.class)

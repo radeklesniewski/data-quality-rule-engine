@@ -53,7 +53,7 @@ Rule vatFormat = Rule.builder("vatFormat")
 // 2. Run: records in (pulled lazily), outcomes out (pushed as produced), summary returned.
 RunSummary summary = ValidationEngine.create().run(
         RecordSource.of(records),                  // or JsonRecordSources.array(inputStream)
-        RuleCatalog.of(vatFormat),                 // or JsonRuleCatalog.load(path, logicRegistry)
+        RuleCatalog.of(vatFormat),                 // or JsonRuleCatalogs.load(path, logicRegistry)
         RunOptions.builder()
                 .ruleFilter(RuleFilter.country("DE").and(RuleFilter.category("tax")))
                 .batchSize(1_000)
@@ -69,7 +69,7 @@ RunSummary summary = ValidationEngine.create().run(
 ```
 
 Rules can also be defined as data. See `example-http/src/main/resources/example-catalog.json` and
-`JsonRuleCatalog`.
+`JsonRuleCatalogs`.
 
 ## Running the example HTTP API
 

@@ -1,4 +1,4 @@
-package io.github.radeklesniewski.dq.json;
+package io.github.radeklesniewski.dq.json.record;
 
 import io.github.radeklesniewski.dq.record.DataRecord;
 import java.util.Map;

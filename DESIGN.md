@@ -52,7 +52,8 @@ Why this shape:
 - **Small surface, enforced.** `engine-core`'s `module-info` exports four API packages (`dq`, `dq.record`,
   `dq.rule`, `dq.select`). The implementation in `dq.internal` isn't exported.
 
-**Modules:** `engine-core` (the library, **zero runtime dependencies**), `engine-json` (Jackson 3 adapters),
+**Modules:** `engine-core` (the library, **zero runtime dependencies**), `engine-json` (Jackson 3 adapters, one
+exported package per concern: `dq.json.record`, `dq.json.catalog`, `dq.json.outcome`; ADR-0011),
 `example-http` (the demo host, JDK `HttpServer`). Hosts that don't use JSON, or that use another JSON library,
 depend on the core only (ADR-0002).
 
@@ -69,7 +70,7 @@ A `Rule` is an id, label, `RuleLogic`, `DecisionMapping` and metadata (status, s
 - **Provenance is captured automatically, not reported by the rule author.** Logic reads fields through a tracking
   `RecordView` that records every path read and the value seen (absent fields included: "no vatId" is evidence).
   Provenance therefore can't drift from what the logic actually did, and it's kept even when logic fails part-way.
-- **Rules can be defined in code or as data.** `JsonRuleCatalog` loads metadata and mappings from JSON and resolves
+- **Rules can be defined in code or as data.** `JsonRuleCatalogs` loads metadata and mappings from JSON and resolves
   `"logic": "vatFormat"` through a `RuleLogicRegistry` (ADR-0004, ADR-0010). Loading is strict and reports every
   problem at once, e.g. `rules[1] 'b': "severity" is required`.
 
@@ -157,7 +158,7 @@ Other details:
 |---|---|---|
 | `DataRecord` | `Optional<Object> get(path)` | `DataRecord.ofMap`, `JsonDataRecord` |
 | `RecordSource` | lazy `next()`; `RecordReadException` skips one record; `AutoCloseable` | `RecordSource.of(Iterable/Iterator/Stream)`, `JsonRecordSources.array/lines` |
-| `RuleCatalog` | `List<Rule> rules()`, snapshotted once per run | `RuleCatalog.of(...)`, `JsonRuleCatalog.load/watching` (reloads between runs) |
+| `RuleCatalog` | `List<Rule> rules()`, snapshotted once per run | `RuleCatalog.of(...)`, `JsonRuleCatalogs.load/watching` (reloads between runs) |
 | `RuleLogicRegistry` | logic id → `RuleLogic`, for catalogs defined as data | `RuleLogicRegistry.of(Map)` |
 | `RuleFilter` | `matches(Rule)` | status / country / category / custom, composable |
 | `OutcomeSink` | `accept(Outcome)`, called from one thread | `CollectingSink`, `OutcomeSink.of(...)`, `JsonOutcomeWriter.document/lines` |
@@ -234,7 +235,7 @@ medium (M) changes, listed in the order I'd do them.
 | 5 | HTTP accepts an unknown `format` value silently (falls back to JSON). Each parallel request creates its own pool, and the comment in `RunRequest` suggests a cap that doesn't exist. | Surprising behaviour in the example. | Validate `format` (400). Share one pool or cap concurrent parallel requests. | S |
 | 6 | Toolchain is Java 25 although the code compiles with `--release 21`. | A reviewer with only JDK 21 and no network can't build. | Set the toolchain to 21. | S |
 | 7 | `org.gradle.caching=true` makes a repeated `./gradlew clean test` restore results from the build cache (`FROM-CACHE`) instead of running tests. | Easy to believe tests ran when they didn't. A fresh clone isn't affected. | Use `--no-build-cache`/`--rerun-tasks` when verifying (README), or disable caching for `Test` tasks. | S |
-| 8 | Missing evidence: no test runs one `ValidationEngine` from several threads at once (thread safety follows from immutability but isn't tested). `JsonRuleCatalog.watching` detects changes by modification time only. One selection test uses a static counter. | Claims that hold today but aren't pinned by tests. | A concurrent-runs test, content hashing in `watching`, an instance counter in the test. | S |
+| 8 | Missing evidence: no test runs one `ValidationEngine` from several threads at once (thread safety follows from immutability but isn't tested). `JsonRuleCatalogs.watching` detects changes by modification time only. One selection test uses a static counter. | Claims that hold today but aren't pinned by tests. | A concurrent-runs test, content hashing in `watching`, an instance counter in the test. | S |
 
 ## 11. Future work (beyond the task's scope)
 
@@ -262,7 +263,7 @@ medium (M) changes, listed in the order I'd do them.
 | Requirement | Where | Proven by |
 |---|---|---|
 | F1 one Result per rule with provenance | `ValidationEngine`, `Result`, `Provenance`, `TrackingRecordView` | `FixtureScenarioTest`, `RuleEvaluatorTest` |
-| F2 decisions as data | `DecisionMapping`, `RuleLogic` (values only) | `DecisionMappingTest`, `JsonRuleCatalogTest` |
+| F2 decisions as data | `DecisionMapping`, `RuleLogic` (values only) | `DecisionMappingTest`, `JsonRuleCatalogsTest` |
 | F3 fault isolation | `RecordEvaluator`, `RuleError`, `RecordError` | `FixtureScenarioTest#faultsAreIsolated…`, `ValidationEngineTest$FaultIsolation` |
 | F4 summary | `RunSummary` | `FixtureScenarioTest`, `ApiValueTypesTest` |
 | F5 1M records, bounded memory, configurable batches | `BatchReader`, `OutcomeSink`, `ParallelRun` | `BoundedMemoryTest` (`memoryTest`), `ValidationEngineTest$Streaming`, `EngineBenchmark` |

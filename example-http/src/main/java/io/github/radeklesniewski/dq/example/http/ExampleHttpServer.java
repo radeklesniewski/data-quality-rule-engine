@@ -4,10 +4,10 @@ import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
 import io.github.radeklesniewski.dq.RunSummary;
 import io.github.radeklesniewski.dq.ValidationEngine;
-import io.github.radeklesniewski.dq.json.JsonOutcomeWriter;
-import io.github.radeklesniewski.dq.json.JsonRecordSources;
-import io.github.radeklesniewski.dq.json.JsonRuleCatalog;
-import io.github.radeklesniewski.dq.json.JsonSourceException;
+import io.github.radeklesniewski.dq.json.catalog.JsonRuleCatalogs;
+import io.github.radeklesniewski.dq.json.outcome.JsonOutcomeWriter;
+import io.github.radeklesniewski.dq.json.record.JsonRecordSources;
+import io.github.radeklesniewski.dq.json.record.JsonSourceException;
 import io.github.radeklesniewski.dq.record.RecordSource;
 import io.github.radeklesniewski.dq.rule.Rule;
 import io.github.radeklesniewski.dq.rule.RuleCatalog;
@@ -135,7 +135,7 @@ public final class ExampleHttpServer implements AutoCloseable {
      */
     public static RuleCatalog bundledCatalog() {
         try (InputStream in = ExampleHttpServer.class.getResourceAsStream("/example-catalog.json")) {
-            return JsonRuleCatalog.load(Objects.requireNonNull(in, "example-catalog.json missing"),
+            return JsonRuleCatalogs.load(Objects.requireNonNull(in, "example-catalog.json missing"),
                     ExampleRuleLogic.REGISTRY);
         } catch (IOException e) {
             throw new UncheckedIOException(e);
@@ -171,7 +171,8 @@ public final class ExampleHttpServer implements AutoCloseable {
         for (int i = 0; i + 1 < args.length; i += 2) {
             switch (args[i]) {
                 case "--port" -> port = Integer.parseInt(args[i + 1]);
-                case "--catalog" -> catalog = JsonRuleCatalog.watching(Path.of(args[i + 1]), ExampleRuleLogic.REGISTRY);
+                case "--catalog" ->
+                        catalog = JsonRuleCatalogs.watching(Path.of(args[i + 1]), ExampleRuleLogic.REGISTRY);
                 case "--max-body-mb" -> maxBodyBytes = Long.parseLong(args[i + 1]) * 1024 * 1024;
                 default -> throw new IllegalArgumentException("Unknown argument " + args[i]);
             }

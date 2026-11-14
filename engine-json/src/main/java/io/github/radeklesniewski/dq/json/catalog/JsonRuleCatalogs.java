@@ -1,5 +1,6 @@
-package io.github.radeklesniewski.dq.json;
+package io.github.radeklesniewski.dq.json.catalog;
 
+import io.github.radeklesniewski.dq.json.internal.Json;
 import io.github.radeklesniewski.dq.rule.RuleCatalog;
 import io.github.radeklesniewski.dq.rule.RuleLogicRegistry;
 import java.io.IOException;
@@ -41,10 +42,13 @@ import tools.jackson.databind.JsonNode;
  * <p>Loading is strict and all-or-nothing. Unknown properties (usually typos), invalid enum values, unknown logic
  * ids, duplicate rule ids and invalid rules are all collected and reported together in one
  * {@link CatalogLoadException}, so a catalog author can fix every problem in one pass.
+ *
+ * <p>This class only has static factories, like {@code JsonRecordSources}: each method returns a {@link RuleCatalog}
+ * and hides which implementation it is (a fixed snapshot or a reloading one).
  */
-public final class JsonRuleCatalog {
+public final class JsonRuleCatalogs {
 
-    private JsonRuleCatalog() {
+    private JsonRuleCatalogs() {
     }
 
     /**

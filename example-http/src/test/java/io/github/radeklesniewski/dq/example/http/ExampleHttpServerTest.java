@@ -4,7 +4,7 @@ import static java.nio.charset.StandardCharsets.UTF_8;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import io.github.radeklesniewski.dq.Fixtures;
-import io.github.radeklesniewski.dq.json.CatalogLoadException;
+import io.github.radeklesniewski.dq.json.catalog.CatalogLoadException;
 import io.github.radeklesniewski.dq.rule.Decision;
 import io.github.radeklesniewski.dq.rule.RuleCatalog;
 import java.io.BufferedReader;
@@ -13,8 +13,8 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.io.UncheckedIOException;
-import java.net.InetSocketAddress;
 import java.net.HttpURLConnection;
+import java.net.InetSocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
