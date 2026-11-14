@@ -7,9 +7,8 @@ behind it. Detailed decision records are in [`docs/adr/`](docs/adr/README.md), a
 
 **Status:** every functional requirement (F1–F6) is implemented and tested, plus an example HTTP host.
 1,000,000 records stream through a 64 MB heap in about 0.4 s. A realistic 30-rule catalog runs at about 225k
-records/s sequentially and about 650–800k records/s in parallel (16 threads). An independent review of the finished
-project found two issues, both now fixed: an HTTP deadlock with half-duplex clients, and silently ignored content
-after a JSON array. The remaining known limitations and the plan beyond them are in §10 and §11.
+records/s sequentially and about 650–800k records/s in parallel (16 threads). Independent reviews of each module found
+and fixed bugs (the details are in the ADR review notes); what's still open is in §10 and §11.
 
 ---
 

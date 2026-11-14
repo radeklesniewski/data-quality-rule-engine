@@ -71,7 +71,7 @@ Priority order follows the brief: **core done well before extended features**.
 - ☑ `README.md`: requirements, build/test/benchmark commands, library usage, HTTP example with curl (verified against
   a running server), sample requests in `example-http/samples/`.
 - ☑ Clean clone with an empty Gradle home: `./gradlew build :engine-core:memoryTest` passes (≈25 s).
-- ☐ Push to GitHub (needs a remote); optionally CI (GitHub Actions running `build` + `memoryTest`).
+- ☑ Pushed to GitHub (`origin/main`). CI: `.github/workflows/build.yml` runs `build` + `memoryTest` on JDK 21.
 
 ## M8 — Review follow-up
 - ☑ D1: the HTTP example spools the request body to a temp file (size limit → 413) before validating. This fixes a
