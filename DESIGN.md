@@ -50,7 +50,18 @@ Why this shape:
 - **`RunOptions` is a class with a builder, not a record.** Options were added in three milestones (filters,
   out-of-scope results, execution mode) without breaking any caller, and future ones won't either.
 - **Small surface, enforced.** `engine-core`'s `module-info` exports four API packages (`dq`, `dq.record`,
-  `dq.rule`, `dq.select`). The implementation in `dq.internal` isn't exported.
+  `dq.rule`, `dq.select`). The implementation in `dq.internal` isn't exported, and inside it only the five classes
+  the API packages call are `public` (`Runs`, `RecordKeys`, `FieldPaths`, `MapDataRecord`, `RecordFields`); the rest
+  of the pipeline is package-private.
+- **Packages split where the split keeps helpers package-private** (the rule behind ADR-0011). The API packages
+  follow what a host works with: the engine and the outcomes it streams (`dq`), input SPIs (`dq.record`), the rule
+  model (`dq.rule`) and selection (`dq.select`), with dependencies pointing one way (`select` → `rule` → `record`).
+  The outcome types stay in `dq` rather than a `dq.outcome` package: every host imports them together with
+  `ValidationEngine`, nothing would be better encapsulated, and the move would break every host for navigation alone.
+  `dq.internal` stays one package on purpose: its classes form one pipeline that `Runs` wires together, so splitting
+  it would turn package-private classes `public` module-wide, the opposite of the goal. The API ↔ `internal`
+  references (`ValidationEngine` → `Runs`, `DataRecord.ofMap` → `MapDataRecord`) follow the JDK's own pattern
+  (`List.of` → `ImmutableCollections`) and are safe because `internal` is never exported.
 
 **Modules:** `engine-core` (the library, **zero runtime dependencies**), `engine-json` (Jackson 3 adapters, one
 exported package per concern: `dq.json.record`, `dq.json.catalog`, `dq.json.outcome`; ADR-0011),

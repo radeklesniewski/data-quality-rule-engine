@@ -30,7 +30,7 @@ public record RecordKeys(String idField, String countryField) {
      * @throws FieldTypeException if neither a string nor a number
      * @throws IllegalArgumentException if blank, or a number that isn't finite
      */
-    public String id(DataRecord record) {
+    String id(DataRecord record) {
         Object value = RecordFields.read(record, idField).orElseThrow(() -> new MissingFieldException(idField));
         String id = switch (value) {
             case String s -> s;
@@ -50,7 +50,7 @@ public record RecordKeys(String idField, String countryField) {
      * @return the country, or empty if absent
      * @throws FieldTypeException if present but not a string
      */
-    public Optional<String> country(DataRecord record) {
+    Optional<String> country(DataRecord record) {
         return RecordFields.read(record, countryField).map(value -> RecordFields.as(countryField, value, String.class));
     }
 
